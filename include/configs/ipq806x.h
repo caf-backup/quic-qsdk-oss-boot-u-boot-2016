@@ -142,13 +142,14 @@
 /*
  * PCI Configs
  */
-#undef CONFIG_IPQ806X_PCI
-
-#ifdef CONFIG_IPQ806X_PCI
+#define CONFIG_PCI_IPQ
+#define PCI_MAX_DEVICES	3
+#ifdef CONFIG_PCI_IPQ
 #define CONFIG_PCI
 #define CONFIG_CMD_PCI
 #define CONFIG_PCI_SCAN_SHOW
 #endif
+
 
 /*
  * MMC Configs
@@ -259,6 +260,12 @@ typedef struct {
 #define CONFIG_SF_DEFAULT_MODE SPI_MODE_0
 
 #define CONFIG_SPI_FLASH_BAR
+
+/*
+ *MTEST Configs
+ */
+#define CONFIG_SYS_MEMTEST_START	CONFIG_SYS_SDRAM_BASE + 0x1300000
+#define CONFIG_SYS_MEMTEST_END		CONFIG_SYS_MEMTEST_START + 0x100
 
 
 /*NAND Flash Configs*/

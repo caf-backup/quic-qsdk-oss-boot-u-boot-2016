@@ -27,6 +27,7 @@
 #include <asm/arch-ipq806x/clk.h>
 #include "ipq806x.h"
 #include "qca_common.h"
+#include <asm/arch-qca-common/scm.h>
 
 ipq_gmac_board_cfg_t gmac_cfg[CONFIG_IPQ_NO_MACS];
 DECLARE_GLOBAL_DATA_PTR;
@@ -71,6 +72,48 @@ struct dumpinfo_t *dumpinfo_s = dumpinfo_n;
 int dump_entries_s = dump_entries_n;
 
 extern int ipq_spi_init(u16);
+
+pci_clk_offset_t pcie_0_clk = {
+	.aclk_ctl = PCIE_0_ACLK_CTL,
+	.pclk_ctl = PCIE_0_PCLK_CTL,
+	.hclk_ctl = PCIE_0_HCLK_CTL,
+	.aux_clk_ctl = PCIE_0_AUX_CLK_CTL,
+	.alt_ref_clk_ns = PCIE_0_ALT_REF_CLK_NS,
+	.alt_ref_clk_acr = PCIE_0_ALT_REF_CLK_ACR,
+	.aclk_fs = PCIE_0_ACLK_FS,
+	.pclk_fs = PCIE_0_PCLK_FS,
+	.parf_phy_refclk = PCIE20_0_PARF_PHY_REFCLK
+};
+
+pci_clk_offset_t pcie_1_clk = {
+	.aclk_ctl = PCIE_1_ACLK_CTL,
+	.pclk_ctl = PCIE_1_PCLK_CTL,
+	.hclk_ctl = PCIE_1_HCLK_CTL,
+	.aux_clk_ctl = PCIE_1_AUX_CLK_CTL,
+	.alt_ref_clk_ns = PCIE_1_ALT_REF_CLK_NS,
+	.alt_ref_clk_acr = PCIE_1_ALT_REF_CLK_ACR,
+	.aclk_fs = PCIE_1_ACLK_FS,
+	.pclk_fs = PCIE_1_PCLK_FS,
+	.parf_phy_refclk = PCIE20_1_PARF_PHY_REFCLK
+};
+
+pci_clk_offset_t pcie_2_clk = {
+	.aclk_ctl = PCIE_2_ACLK_CTL,
+	.pclk_ctl = PCIE_2_PCLK_CTL,
+	.hclk_ctl = PCIE_2_HCLK_CTL,
+	.aux_clk_ctl = PCIE_2_AUX_CLK_CTL,
+	.alt_ref_clk_ns = PCIE_2_ALT_REF_CLK_NS,
+	.alt_ref_clk_acr = PCIE_2_ALT_REF_CLK_ACR,
+	.aclk_fs = PCIE_2_ACLK_FS,
+	.pclk_fs = PCIE_2_PCLK_FS,
+	.parf_phy_refclk = PCIE20_2_PARF_PHY_REFCLK
+};
+
+enum pcie_id {
+	PCIE_0,
+	PCIE_1,
+	PCIE_2,
+};
 
 unsigned long timer_read_counter(void)
 {
@@ -315,6 +358,38 @@ void qca_serial_init(struct ipq_serial_platdata *plat)
 			GSBI_CTRL_REG(gsbi_base));
 
 }
+void board_pcie_clock_init(int id)
+{
+	switch(id) {
+		case PCIE_0:
+			pcie_clock_config(&pcie_0_clk);
+			break;
+		case PCIE_1:
+			pcie_clock_config(&pcie_1_clk);
+			break;
+		case PCIE_2:
+			pcie_clock_config(&pcie_2_clk);
+			break;
+	}
+}
+
+void board_pci_init(int id)
+{
+	int node, gpio_node;
+	char name[16];
+
+	sprintf(name, "pci%d", id);
+	node = fdt_path_offset(gd->fdt_blob, name);
+	if (node < 0) {
+		printf("Could not find PCI in device tree\n");
+		return;
+	}
+	gpio_node = fdt_subnode_offset(gd->fdt_blob, node, "pci_gpio");
+	if (gpio_node >= 0)
+		qca_gpio_init(gpio_node);
+
+	return;
+}
 
 void ipq_fdt_fixup_socinfo(void *blob)
 {
@@ -376,4 +451,18 @@ void set_flash_secondary_type(qca_smem_flash_info_t *smem)
 #endif
 	smem->flash_secondary_type = SMEM_BOOT_NAND_FLASH;
 	return;
+}
+
+int switch_ce_channel_buf(unsigned int channel_id)
+{
+	int ret;
+	switch_ce_chn_buf_t ce1_chn_buf;
+
+	ce1_chn_buf.resource   = CE1_RESOURCE;
+	ce1_chn_buf.channel_id = channel_id;
+
+	ret = scm_call(SCM_SVC_TZ, CE_CHN_SWITCH_CMD, &ce1_chn_buf,
+		sizeof(switch_ce_chn_buf_t), NULL, 0);
+
+	return ret;
 }
