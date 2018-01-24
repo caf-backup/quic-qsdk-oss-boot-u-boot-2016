@@ -34,6 +34,7 @@
 #include "qca_common.h"
 #include "ipq_phy.h"
 
+#define DLOAD_MAGIC_COOKIE 0x10
 DECLARE_GLOBAL_DATA_PTR;
 
 qca_mmc mmc_host;
@@ -133,8 +134,10 @@ void board_nand_init(void)
 	gpio_node = fdt_path_offset(gd->fdt_blob, "/spi/spi_gpio");
 	if (gpio_node >= 0) {
 		qca_gpio_init(gpio_node);
-		ipq_spi_init(CONFIG_IPQ_SPI_NOR_INFO_IDX);
 	}
+
+	if (fdtdec_get_uint(gd->fdt_blob, 0, "spi_nor_available", 0))
+		ipq_spi_init(CONFIG_IPQ_SPI_NOR_INFO_IDX);
 
 #ifdef CONFIG_SPI_NAND
 	if (fdtdec_get_uint(gd->fdt_blob, 0, "spi_nand_available", 0))
@@ -224,36 +227,6 @@ int board_eth_init(bd_t *bis)
 }
 
 #ifdef CONFIG_QCA_MMC
-int board_mmc_env_init(void)
-{
-	block_dev_desc_t *blk_dev;
-	disk_partition_t disk_info;
-	int ret;
-
-	if (mmc_init(mmc_host.mmc)) {
-		/* The HS mode command(cmd6) is getting timed out. So mmc card is
-		 * not getting initialized properly. Since the env partition is not
-		 * visible, the env default values are writing into the default
-		 * partition (start of the mmc device). So do a reset again.
-		 */
-		if (mmc_init(mmc_host.mmc)) {
-			printf("MMC init failed \n");
-			return -1;
-		}
-	}
-	blk_dev = mmc_get_dev(mmc_host.dev_num);
-	ret = get_partition_info_efi_by_name(blk_dev,
-				"0:APPSBLENV", &disk_info);
-
-	if (ret == 0) {
-		board_env_offset = disk_info.start * disk_info.blksz;
-		board_env_size = disk_info.size * disk_info.blksz;
-		board_env_range = board_env_size;
-		BUG_ON(board_env_size > CONFIG_ENV_SIZE_MAX);
-	}
-	return ret;
-}
-
 int board_mmc_init(bd_t *bis)
 {
 	int ret;
@@ -283,7 +256,7 @@ int board_mmc_init(bd_t *bis)
 	ret = qca_mmc_init(bis, &mmc_host);
 
 	if (!ret && sfi->flash_type == SMEM_BOOT_MMC_FLASH) {
-		ret = board_mmc_env_init();
+		ret = board_mmc_env_init(mmc_host);
 	}
 
 	return ret;
@@ -353,4 +326,14 @@ void fdt_fixup_auto_restart(void *blob)
 void set_flash_secondary_type(qca_smem_flash_info_t * smem)
 {
 	return;
+}
+
+int apps_iscrashed(void)
+{
+	u32 *dmagic = (u32 *)0x193D100;
+
+	if (*dmagic == DLOAD_MAGIC_COOKIE)
+		return 1;
+
+	return 0;
 }

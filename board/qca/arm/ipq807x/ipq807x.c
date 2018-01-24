@@ -28,6 +28,7 @@
 #include <linux/linkage.h>
 #include <sdhci.h>
 
+#define DLOAD_MAGIC_COOKIE	0x10
 DECLARE_GLOBAL_DATA_PTR;
 
 #define GCNT_PSHOLD             0x004AB000
@@ -412,37 +413,6 @@ int board_eth_init(bd_t *bis)
 	return ret;
 }
 
-int board_mmc_env_init(void)
-{
-	block_dev_desc_t *blk_dev;
-	disk_partition_t disk_info;
-	int ret;
-
-	if (mmc_init(mmc_host.mmc)) {
-		/* The HS mode command(cmd6) is getting timed out. So mmc card
-		 * is not getting initialized properly. Since the env partition
-		 * is not visible, the env default values are writing into the
-		 * default partition (start of the mmc device).
-		 * So do a reset again.
-		 */
-		if (mmc_init(mmc_host.mmc)) {
-			printf("MMC init failed \n");
-			return -1;
-		}
-	}
-	blk_dev = mmc_get_dev(mmc_host.dev_num);
-	ret = get_partition_info_efi_by_name(blk_dev,
-				"0:APPSBLENV", &disk_info);
-
-	if (ret == 0) {
-		board_env_offset = disk_info.start * disk_info.blksz;
-		board_env_size = disk_info.size * disk_info.blksz;
-		board_env_range = board_env_size;
-		BUG_ON(board_env_size > CONFIG_ENV_SIZE_MAX);
-	}
-	return ret;
-}
-
 int board_mmc_init(bd_t *bis)
 {
 	int ret;
@@ -474,7 +444,7 @@ int board_mmc_init(bd_t *bis)
 #endif
 
 	if (!ret && sfi->flash_type == SMEM_BOOT_MMC_FLASH) {
-		ret = board_mmc_env_init();
+		ret = board_mmc_env_init(mmc_host);
 	}
 
 	return ret;
@@ -947,6 +917,7 @@ void ipq_fdt_fixup_usb_device_mode(void *blob)
 {
 	int nodeoff, ret, node;
 	const char *usb_dr_mode = "peripheral"; /* Supported mode */
+	const char *usb_max_speed = "high-speed";/* Supported speed */
 	const char *usb_node[] = {"/soc/usb3@8A00000/dwc3@8A00000"};
 	const char *usb_cfg;
 
@@ -971,6 +942,13 @@ void ipq_fdt_fixup_usb_device_mode(void *blob)
 				  (strlen(usb_dr_mode) + 1));
 		if (ret)
 			printf("fixup_usb: 'dr_mode' cannot be set");
+
+		/* if mode is peripheral restricting to high-speed */
+		ret = fdt_setprop(blob, nodeoff, "maximum-speed",
+				  usb_max_speed,
+				  (strlen(usb_max_speed) + 1));
+		if (ret)
+			printf("fixup_usb: 'maximum-speed' cannot be set");
 	}
 }
 
@@ -1023,4 +1001,14 @@ unsigned int get_smem_spi_addr_len(void)
 	}
 
 	return spi_flash_addr_len;
+}
+
+int apps_iscrashed(void)
+{
+	u32 *dmagic = (u32 *)0x193D100;
+
+	if (*dmagic == DLOAD_MAGIC_COOKIE)
+		return 1;
+
+	return 0;
 }
