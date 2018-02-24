@@ -1343,8 +1343,7 @@ static int qca_wdt_write_crashdump_data(
 * the type of boot flash memory and writes all these crashdump information
 * in provided offset in flash memory.
 */
-static int do_dumpqca_flash_data(cmd_tbl_t *cmdtp, int flag,
-			int argc, char *const argv[])
+int do_dumpqca_flash_data(const char *offset)
 {
 	unsigned char *kernel_crashdump_address =
 		(unsigned char *) CONFIG_QCA_KERNEL_CRASHDUMP_ADDRESS;
@@ -1353,8 +1352,6 @@ static int do_dumpqca_flash_data(cmd_tbl_t *cmdtp, int flag,
 	int ret_val;
 	loff_t crashdump_offset;
 
-	if (argc != 2)
-		return CMD_RET_USAGE;
 
 	if (sfi->flash_type == SMEM_BOOT_NAND_FLASH) {
 		flash_type = SMEM_BOOT_NAND_FLASH;
@@ -1366,13 +1363,13 @@ static int do_dumpqca_flash_data(cmd_tbl_t *cmdtp, int flag,
 #endif
 	} else {
 		printf("command not supported for this flash memory\n");
-		return CMD_RET_FAILURE;
+		return -EINVAL;
 	}
 
-	ret_val = str2off(argv[1], &crashdump_offset);
+	ret_val = str2off(offset, &crashdump_offset);
 
 	if (!ret_val)
-		return CMD_RET_USAGE;
+		return -EINVAL;
 
 	g_crashdump_data.cpu_context = kernel_crashdump_address;
 	tlv_msg.msg_buffer = kernel_crashdump_address + CONFIG_CPU_CONTEXT_DUMP_SIZE;
@@ -1387,15 +1384,11 @@ static int do_dumpqca_flash_data(cmd_tbl_t *cmdtp, int flag,
 
 	if (ret_val) {
 		printf("crashdump data writing in flash failure\n");
-		return CMD_RET_FAILURE;
+		return -EPERM;
 	}
 
 	printf("crashdump data writing in flash successful\n");
 
-	return CMD_RET_SUCCESS;
+	return 0;
 }
-
-U_BOOT_CMD(dumpipq_flash_data, 2, 0, do_dumpqca_flash_data,
-	"dumpipq_flash_data crashdump collection and storing in flash",
-	"dumpipq_flash_data [offset in flash]\n");
 #endif

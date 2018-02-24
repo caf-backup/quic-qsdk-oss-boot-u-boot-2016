@@ -51,6 +51,7 @@ void board_mmc_deinit(void);
 
 void set_flash_secondary_type(qca_smem_flash_info_t *);
 void dump_func(void);
+int do_dumpqca_flash_data(const char *);
 int apps_iscrashed(void);
 
 struct dumpinfo_t{
@@ -78,4 +79,5 @@ extern int dump_entries_s;
 #define MMC_MODE_HC		0x800
 
 #define SPI_DEFAULT_ADDR_LEN	3
+#define SPI_MAX_ADDR_LEN	4
 #endif  /*  __QCA_COMMON_H_ */

@@ -419,8 +419,9 @@ void board_pcie_clock_init(int id)
 
 void board_pci_init(int id)
 {
-	int node, gpio_node;
+	int node, gpio_node, offset;
 	char name[16];
+	u32 gpio;
 
 	sprintf(name, "pci%d", id);
 	node = fdt_path_offset(gd->fdt_blob, name);
@@ -429,8 +430,16 @@ void board_pci_init(int id)
 		return;
 	}
 	gpio_node = fdt_subnode_offset(gd->fdt_blob, node, "pci_gpio");
-	if (gpio_node >= 0)
+	if (gpio_node >= 0) {
 		qca_gpio_init(gpio_node);
+		offset = fdt_first_subnode(gd->fdt_blob, gpio_node);
+		if (offset) {
+			gpio = fdtdec_get_uint(gd->fdt_blob,
+							offset, "gpio", 0);
+			gpio_set_value(gpio, 1);
+			udelay(3000);
+		}
+	}
 
 	return;
 }
@@ -817,4 +826,33 @@ int apps_iscrashed(void)
 		return 1;
 
 	return 0;
+}
+
+int ipq_get_tz_version(char *version_name, int buf_size)
+{
+	int ret;
+
+	ret = scm_call(SCM_SVC_INFO, TZBSP_BUILD_VER_QUERY_CMD, NULL,
+			0, version_name, BUILD_ID_LEN);
+	if(ret)
+		return -ENOMSG;
+
+	snprintf(version_name, buf_size, "%s\n", version_name);
+	return 0;
+}
+
+void clear_l2cache_err(void)
+{
+        unsigned int val;
+#ifndef CONFIG_SYS_DCACHE_OFF
+        val = get_l2_indirect_reg(L2ESR_IND_ADDR);
+#endif
+
+#ifdef CONFIG_IPQ_REPORT_L2ERR
+        report_l2err(val);
+#endif
+
+#ifndef CONFIG_SYS_DCACHE_OFF
+        set_l2_indirect_reg(L2ESR_IND_ADDR, val);
+#endif
 }

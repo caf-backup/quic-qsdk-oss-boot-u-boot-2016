@@ -43,11 +43,11 @@
 #define CONFIG_BOOTARGS			"console=ttyMSM0,115200n8"
 #define CONFIG_SYS_HUSH_PARSER
 #define CONFIG_SYS_VSNPRINTF
+#define CONFIG_FIT_DISABLE_SHA256
 
 #define CONFIG_MBN_HEADER
 #define CONFIG_IPQ_APPSBL_IMG_TYPE	0x5
 
-#define CONFIG_USB_XHCI_IPQ
 #ifdef CONFIG_USB_XHCI_IPQ
 #define CONFIG_USB_XHCI
 #define CONFIG_USB_XHCI_DWC3
@@ -130,10 +130,11 @@
 
 #define CONFIG_OF_COMBINE		1
 
+#define CONFIG_CMD_BOOTZ
+
 /*
  * I2C Configs
  */
-#define CONFIG_IPQ806X_I2C		1
 #ifdef CONFIG_IPQ806X_I2C
 #define CONFIG_SYS_I2C_QUP
 #define CONFIG_CMD_I2C
@@ -143,7 +144,6 @@
 /*
  * PCI Configs
  */
-#define CONFIG_PCI_IPQ
 #define PCI_MAX_DEVICES	3
 #ifdef CONFIG_PCI_IPQ
 #define CONFIG_PCI
@@ -330,7 +330,7 @@ typedef struct {
 
 /* Enabling this flag will report any L2 errors.
  * By default we are disabling it */
-/*#define CONFIG_IPQ_REPORT_L2ERR*/
+#define CONFIG_IPQ_REPORT_L2ERR
 
 /*
  * Location in IMEM which contains the physical address of

@@ -33,6 +33,7 @@
 #define CONFIG_SYS_VSNPRINTF
 #define CONFIG_IPQ40XX_UART
 #define CONFIG_CONS_INDEX		1
+#define CONFIG_FIT_DISABLE_SHA256
 
 #define CONFIG_BAUDRATE			115200
 #define CONFIG_SYS_BAUDRATE_TABLE	{4800, 9600, 19200, 38400, 57600,\
@@ -61,7 +62,6 @@
 #define CONFIG_NR_DRAM_BANKS		1
 #define CONFIG_OF_LIBFDT		1
 
-#define CONFIG_IPQ40XX_I2C		1
 #ifdef CONFIG_IPQ40XX_I2C
 #define CONFIG_SYS_I2C_QUP
 #define CONFIG_CMD_I2C
@@ -143,7 +143,6 @@ typedef struct {
  * USB Support
  */
 
-#define CONFIG_USB_XHCI_IPQ
 #ifdef CONFIG_USB_XHCI_IPQ
 #define CONFIG_USB_XHCI
 #define CONFIG_USB_XHCI_DWC3
@@ -297,11 +296,12 @@ typedef struct {
 #define CONFIG_SYS_MMC_ENV_DEV  0
 #endif
 
-#define CONFIG_PCI_IPQ
 #define PCI_MAX_DEVICES	1
 #ifdef CONFIG_PCI_IPQ
 #define CONFIG_PCI
 #define CONFIG_CMD_PCI
 #define CONFIG_PCI_SCAN_SHOW
 #endif
+
+#define CONFIG_IPQ_4B_ADDR_SWITCH_REQD
 #endif /* _IPQ40XX_H */
