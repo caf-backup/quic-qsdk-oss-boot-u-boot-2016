@@ -85,7 +85,7 @@
 
 #undef CONFIG_BOARD_EARLY_INIT_F
 
-#undef CONFIG_HW_WATCHDOG
+#define CONFIG_HW_WATCHDOG
 
 /* Environment */
 #define CONFIG_MSM_PCOMM
@@ -95,6 +95,11 @@
 #define CONFIG_ENV_RANGE		board_env_range
 #define CONFIG_ENV_SIZE_MAX             (256 << 10) /* 256 KB */
 #define CONFIG_SYS_MALLOC_LEN           (CONFIG_ENV_SIZE_MAX + (512 << 10))
+
+/*
+*Run command support
+*/
+#define	CONFIG_CMD_RUN
 
 /*
  * select serial console configuration

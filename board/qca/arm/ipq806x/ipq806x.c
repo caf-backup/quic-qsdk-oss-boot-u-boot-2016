@@ -30,6 +30,7 @@
 #include "ipq806x.h"
 #include "qca_common.h"
 #include <asm/arch-qca-common/scm.h>
+#include <watchdog.h>
 
 #define DLOAD_MAGIC_COOKIE_1 0xE47B337D
 #define DLOAD_MAGIC_COOKIE_2 0x0501CAB0
@@ -178,6 +179,13 @@ void reset_cpu(unsigned long a)
 
 	while(1);
 }
+
+#ifdef CONFIG_HW_WATCHDOG
+void hw_watchdog_reset(void)
+{
+	writel(1, APCS_WDT0_RST);
+}
+#endif
 
 int board_mmc_init(bd_t *bis)
 {
@@ -402,6 +410,41 @@ void qca_serial_init(struct ipq_serial_platdata *plat)
 			GSBI_CTRL_REG(gsbi_base));
 
 }
+
+void ipq_wifi_pci_power_enable()
+{
+	int offset;
+	u32 gpio;
+
+	offset = fdt_path_offset(gd->fdt_blob, "pci_pwr");
+	if (offset >= 0) {
+		qca_gpio_init(offset);
+		for (offset = fdt_first_subnode(gd->fdt_blob, offset); offset > 0;
+			offset = fdt_next_subnode(gd->fdt_blob, offset)) {
+
+			gpio = fdtdec_get_uint(gd->fdt_blob,
+					  offset, "gpio", 0);
+			gpio_set_value(gpio, 1);
+		}
+	}
+}
+
+static void ipq_wifi_pci_power_disable()
+{
+	int offset;
+	u32 gpio;
+	offset = fdt_path_offset(gd->fdt_blob, "pci_pwr");
+	if (offset >= 0) {
+		for (offset = fdt_first_subnode(gd->fdt_blob, offset); offset > 0;
+			offset = fdt_next_subnode(gd->fdt_blob, offset)) {
+
+			gpio = fdtdec_get_uint(gd->fdt_blob,
+					  offset, "gpio", 0);
+			gpio_set_value(gpio, 0);
+		}
+	}
+}
+
 void board_pcie_clock_init(int id)
 {
 	switch(id) {
@@ -444,6 +487,49 @@ void board_pci_init(int id)
 	return;
 }
 
+void board_pci_deinit()
+{
+	int node, gpio_node, i, gpio;
+	char name[16];
+	struct fdt_resource parf;
+	struct fdt_resource pci_rst;
+	struct qca_gpio_config gpio_config = {0};
+
+	for (i = 0; i < PCI_MAX_DEVICES; i++) {
+		snprintf(name, sizeof(name), "pci%d", i);
+		node = fdt_path_offset(gd->fdt_blob, name);
+		if (node < 0) {
+			printf("Could not find PCI in device tree\n");
+			return;
+		}
+		gpio_config.gpio = fdtdec_get_uint(gd->fdt_blob,
+						node, "perst_gpio", 0);
+
+		gpio_tlmm_config(&gpio_config);
+
+		fdt_get_named_resource(gd->fdt_blob, node, "reg", "reg-names", "pci_rst",
+					     &pci_rst);
+		writel(0x7d, pci_rst.start);
+		fdt_get_named_resource(gd->fdt_blob, node, "reg", "reg-names", "parf",
+					     &parf);
+		writel(0x1, parf.start + 0x40);
+		switch(i) {
+			case PCIE_0:
+				pcie_clock_shutdown(&pcie_0_clk);
+				break;
+			case PCIE_1:
+				pcie_clock_shutdown(&pcie_1_clk);
+				break;
+			case PCIE_2:
+				pcie_clock_shutdown(&pcie_2_clk);
+				break;
+		}
+
+	}
+	ipq_wifi_pci_power_disable();
+
+	return ;
+}
 void ipq_fdt_fixup_socinfo(void *blob)
 {
 	uint32_t cpu_type;
