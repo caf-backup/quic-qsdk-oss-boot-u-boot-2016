@@ -257,7 +257,9 @@ static ulong mmc_bread(int dev_num, lbaint_t start, lbaint_t blkcnt, void *dst)
 		debug("%s: Failed to set blocklen\n", __func__);
 		return 0;
 	}
-
+#if !defined(CONFIG_SYS_DCACHE_OFF)
+	flush_cache((unsigned long)dst, blkcnt * mmc->read_bl_len);
+#endif
 	do {
 		cur = (blocks_todo > mmc->cfg->b_max) ?
 			mmc->cfg->b_max : blocks_todo;
@@ -269,6 +271,9 @@ static ulong mmc_bread(int dev_num, lbaint_t start, lbaint_t blkcnt, void *dst)
 		start += cur;
 		dst += cur * mmc->read_bl_len;
 	} while (blocks_todo > 0);
+#if !defined(CONFIG_SYS_DCACHE_OFF)
+	flush_cache((unsigned long)dst, blkcnt * mmc->read_bl_len);
+#endif
 
 	return blkcnt;
 }
@@ -380,6 +385,11 @@ static int mmc_send_op_cond_iter(struct mmc *mmc, int use_arg)
 	if (err)
 		return err;
 	mmc->ocr = cmd.response[0];
+
+	/*1ms delay is added to give cards time to respond*/
+	if(!use_arg)
+		udelay(1000);
+
 	return 0;
 }
 
@@ -411,6 +421,7 @@ static int mmc_complete_op_cond(struct mmc *mmc)
 	uint start;
 	int err;
 
+	udelay(100);
 	mmc->op_cond_pending = 0;
 	if (!(mmc->ocr & OCR_BUSY)) {
 		start = get_timer(0);
@@ -1176,6 +1187,8 @@ static int mmc_startup(struct mmc *mmc)
 	 * For SD, its erase group is always one sector
 	 */
 	mmc->erase_grp_size = 1;
+	mmc->wp_grp_size = WP_GRP_SIZE(mmc->csd);
+	mmc->wp_grp_enable = WP_GRP_ENABLE(mmc->csd);
 	mmc->part_config = MMCPART_NOAVAILABLE;
 	if (!IS_SD(mmc) && (mmc->version >= MMC_VERSION_4)) {
 		/* check  ext_csd version and capacity */
@@ -1480,14 +1493,16 @@ static int mmc_startup(struct mmc *mmc)
 #if !defined(CONFIG_SPL_BUILD) || \
 		(defined(CONFIG_SPL_LIBCOMMON_SUPPORT) && \
 		!defined(CONFIG_USE_TINY_PRINTF))
-	sprintf(mmc->block_dev.vendor, "Man %06x Snr %04x%04x",
-		mmc->cid[0] >> 24, (mmc->cid[2] & 0xffff),
+	snprintf(mmc->block_dev.vendor, sizeof(mmc->block_dev.vendor),
+		"Man %06x Snr %04x%04x", mmc->cid[0] >> 24, (mmc->cid[2] & 0xffff),
 		(mmc->cid[3] >> 16) & 0xffff);
-	sprintf(mmc->block_dev.product, "%c%c%c%c%c%c", mmc->cid[0] & 0xff,
+	snprintf(mmc->block_dev.product, sizeof(mmc->block_dev.product),
+		"%c%c%c%c%c%c", mmc->cid[0] & 0xff,
 		(mmc->cid[1] >> 24), (mmc->cid[1] >> 16) & 0xff,
 		(mmc->cid[1] >> 8) & 0xff, mmc->cid[1] & 0xff,
 		(mmc->cid[2] >> 24) & 0xff);
-	sprintf(mmc->block_dev.revision, "%d.%d", (mmc->cid[2] >> 20) & 0xf,
+	snprintf(mmc->block_dev.revision, sizeof(mmc->block_dev.revision),
+		 "%d.%d", (mmc->cid[2] >> 20) & 0xf,
 		(mmc->cid[2] >> 16) & 0xf);
 #else
 	mmc->block_dev.vendor[0] = 0;
@@ -1827,6 +1842,87 @@ int mmc_initialize(bd_t *bis)
 
 	do_preinit();
 	return 0;
+}
+
+int mmc_send_wp_set_clr(struct mmc *mmc, unsigned int start,
+			unsigned int size, int set_clr)
+{
+	unsigned int err;
+	unsigned int wp_group_size, count, i;
+	struct mmc_cmd cmd;
+
+	wp_group_size = (mmc->wp_grp_size + 1) * mmc->erase_grp_size;
+	count = DIV_ROUND_UP(size, wp_group_size);
+
+	if (set_clr)
+		cmd.cmdidx = MMC_CMD_SET_WRITE_PROT;
+	else
+		cmd.cmdidx = MMC_CMD_CLR_WRITE_PROT;
+	cmd.resp_type = MMC_RSP_R1b;
+
+	for (i = 0; i < count; i++) {
+		cmd.cmdarg = start + (i * wp_group_size);
+		err = mmc_send_cmd(mmc, &cmd, NULL);
+		if (err) {
+			printf("%s: Error at block 0x%lx - %d\n", __func__,
+				cmd.cmdarg, err);
+			return err;
+		}
+
+		if(MMC_ADDR_OUT_OF_RANGE(cmd.response[0])) {
+			printf("%s: mmc block(0x%lx) out of range", __func__,
+				cmd.cmdarg);
+			return -EINVAL;
+		}
+
+		err = mmc_send_status(mmc, MMC_RESP_TIMEOUT);
+		if (err)
+			return err;
+	}
+
+	return 0;
+}
+
+int mmc_write_protect(struct mmc *mmc, unsigned int start_blk,
+		      unsigned int cnt_blk, int set_clr)
+{
+	ALLOC_CACHE_ALIGN_BUFFER(u8, ext_csd, MMC_MAX_BLOCK_LEN);
+	int err;
+	unsigned int wp_group_size;
+
+	if (!mmc->wp_grp_enable)
+		return -1; /* group write protection is not supported */
+
+	err = mmc_send_ext_csd(mmc, ext_csd);
+
+	if (err) {
+		debug("ext_csd register cannot be retrieved\n");
+		return err;
+	}
+
+	if ((ext_csd[EXT_CSD_USER_WP] & EXT_CSD_US_PWR_WP_DIS)
+	    || (ext_csd[EXT_CSD_USER_WP] & EXT_CSD_US_PERM_WP_EN)) {
+		printf("User power-on write protection is disabled. \n");
+		return -1;
+	}
+
+	err = mmc_switch(mmc, EXT_CSD_CMD_SET_NORMAL, EXT_CSD_USER_WP,
+		         EXT_CSD_US_PWR_WP_EN);
+	if (err) {
+		printf("Failed to enable user power-on write protection\n");
+		return err;
+	}
+
+	wp_group_size = (mmc->wp_grp_size + 1) * mmc->erase_grp_size;
+
+	if (!cnt_blk || start_blk % wp_group_size || cnt_blk % wp_group_size) {
+		printf("Error: Unaligned offset/count. offset/count should be aligned to 0x%x blocks\n", wp_group_size);
+		return -1;
+	}
+
+	err = mmc_send_wp_set_clr(mmc, start_blk, cnt_blk, set_clr);
+
+	return err;
 }
 
 #ifdef CONFIG_SUPPORT_EMMC_BOOT

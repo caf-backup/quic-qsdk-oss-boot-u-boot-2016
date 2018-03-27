@@ -150,7 +150,7 @@ int ipq807x_edma_alloc_rx_buffer(struct ipq807x_edma_hw *ehw,
 		/*
 		 * Allocate buffer
 		 */
-		skb = virt_to_phys(net_rx_packets[counter]);
+		skb = virt_to_phys(net_rx_packets[next]);
 
 		/*
 		 * Get RXFILL descriptor
@@ -177,6 +177,13 @@ int ipq807x_edma_alloc_rx_buffer(struct ipq807x_edma_hw *ehw,
 		 * Map Rx buffer for DMA
 		 */
 		rxfill_desc->buffer_addr = cpu_to_le32(skb);
+
+		flush_dcache_range((unsigned long)rxfill_desc,
+				(unsigned long)rxfill_desc +
+				sizeof(struct ipq807x_edma_rxfill_desc));
+		flush_dcache_range((unsigned long)(rxfill_desc->buffer_addr),
+				(unsigned long)(rxfill_desc->buffer_addr) +
+				PKTSIZE_ALIGN);
 
 		num_alloc++;
 		next = counter;
@@ -300,6 +307,11 @@ uint32_t ipq807x_edma_clean_rx(struct ipq807x_edma_common_info *c_info,
 		}
 
 		rxdesc_desc = IPQ807X_EDMA_RXDESC_DESC(rxdesc_ring, cons_idx);
+
+		invalidate_dcache_range(
+				(unsigned long)(rxdesc_desc->buffer_addr),
+				(unsigned long)((rxdesc_desc->buffer_addr) +
+				PKTSIZE_ALIGN));
 
 		skb = (void *)rxdesc_desc->buffer_addr;
 
@@ -549,6 +561,14 @@ static int ipq807x_eth_snd(struct eth_device *dev, void *packet, int length)
 	txdesc->word1 |= ((length & IPQ807X_EDMA_TXDESC_DATA_LENGTH_MASK)
 			<< IPQ807X_EDMA_TXDESC_DATA_LENGTH_SHIFT);
 
+	flush_dcache_range((unsigned long)txdesc,
+			(unsigned long)txdesc +
+			sizeof(struct ipq807x_edma_txdesc_desc));
+
+	flush_dcache_range((unsigned long)(txdesc->buffer_addr),
+			(unsigned long)(txdesc->buffer_addr) +
+			PKTSIZE_ALIGN);
+
 	/*
 	 * Update producer index
 	 */
@@ -583,6 +603,12 @@ static int ipq807x_eth_recv(struct eth_device *dev)
 	 */
 	for (i = 0; i < ehw->rxdesc_rings; i++) {
 		rxdesc_ring = &ehw->rxdesc_ring[i];
+
+		invalidate_dcache_range((unsigned long)(&rxdesc_ring->desc[0]),
+				(unsigned long)(&rxdesc_ring->desc[0] +
+				(IPQ807X_EDMA_RXDESC_RING_SIZE  *
+				sizeof(struct ipq807x_edma_rxdesc_desc))));
+
 		reg_data = ipq807x_edma_reg_read(
 				IPQ807X_EDMA_REG_RXDESC_INT_STAT(
 					rxdesc_ring->id));
@@ -623,7 +649,7 @@ static int ipq807x_edma_setup_ring_resources(struct ipq807x_edma_hw *ehw)
 		rxfill_ring = &ehw->rxfill_ring[i];
 		rxfill_ring->count = IPQ807X_EDMA_RXFILL_RING_SIZE;
 		rxfill_ring->id = ehw->rxfill_ring_start + i;
-		rxfill_ring->desc = ipq807x_alloc_mem(
+		rxfill_ring->desc = ipq807x_alloc_memalign(
 				sizeof(struct ipq807x_edma_rxfill_desc) *
 				rxfill_ring->count);
 
@@ -653,7 +679,7 @@ static int ipq807x_edma_setup_ring_resources(struct ipq807x_edma_hw *ehw)
 			&ehw->rxfill_ring[index - ehw->rxfill_ring_start];
 		rxdesc_ring->rxfill = ehw->rxfill_ring;
 
-		rxdesc_ring->desc = ipq807x_alloc_mem(
+		rxdesc_ring->desc = ipq807x_alloc_memalign(
 				sizeof(struct ipq807x_edma_rxdesc_desc) *
 				rxdesc_ring->count);
 
@@ -671,7 +697,7 @@ static int ipq807x_edma_setup_ring_resources(struct ipq807x_edma_hw *ehw)
 		txcmpl_ring = &ehw->txcmpl_ring[i];
 		txcmpl_ring->count = IPQ807X_EDMA_TXCMPL_RING_SIZE;
 		txcmpl_ring->id = ehw->txcmpl_ring_start + i;
-		txcmpl_ring->desc = ipq807x_alloc_mem(
+		txcmpl_ring->desc = ipq807x_alloc_memalign(
 				sizeof(struct ipq807x_edma_txcmpl_desc) *
 				txcmpl_ring->count);
 
@@ -690,7 +716,7 @@ static int ipq807x_edma_setup_ring_resources(struct ipq807x_edma_hw *ehw)
 		txdesc_ring = &ehw->txdesc_ring[i];
 		txdesc_ring->count = IPQ807X_EDMA_TXDESC_RING_SIZE;
 		txdesc_ring->id = ehw->txdesc_ring_start + i;
-		txdesc_ring->desc = ipq807x_alloc_mem(
+		txdesc_ring->desc = ipq807x_alloc_memalign(
 					sizeof(struct ipq807x_edma_txdesc_desc) *
 					txdesc_ring->count);
 
@@ -881,7 +907,7 @@ static int ipq807x_eth_init(struct eth_device *eth_dev, bd_t *this)
 	char *lstatus[] = {"up", "Down"};
 	char *dp[] = {"Half", "Full"};
 	int linkup=0;
-	int mac_speed, speed_clock1, speed_clock2;
+	int mac_speed = 0, speed_clock1 = 0, speed_clock2 = 0;
 	int phy_addr, port_8033 = -1, node, aquantia_port = -1;
 
 	node = fdt_path_offset(gd->fdt_blob, "/ess-switch");
@@ -1112,7 +1138,7 @@ static void ipq807x_edma_set_ring_values(struct ipq807x_edma_hw *edma_hw)
  */
 static int ipq807x_edma_alloc_rings(struct ipq807x_edma_hw *ehw)
 {
-	ehw->rxfill_ring = ipq807x_alloc_mem((sizeof(
+	ehw->rxfill_ring = ipq807x_alloc_memalign((sizeof(
 				struct ipq807x_edma_rxfill_ring) *
 				ehw->rxfill_rings));
 
@@ -1121,7 +1147,7 @@ static int ipq807x_edma_alloc_rings(struct ipq807x_edma_hw *ehw)
 		return -1;
 	}
 
-	ehw->rxdesc_ring = ipq807x_alloc_mem((sizeof(
+	ehw->rxdesc_ring = ipq807x_alloc_memalign((sizeof(
 				struct ipq807x_edma_rxdesc_ring) *
 				ehw->rxdesc_rings));
 
@@ -1130,7 +1156,7 @@ static int ipq807x_edma_alloc_rings(struct ipq807x_edma_hw *ehw)
 		goto rxdesc_ring_alloc_fail;
 	}
 
-	ehw->txdesc_ring = ipq807x_alloc_mem((sizeof(
+	ehw->txdesc_ring = ipq807x_alloc_memalign((sizeof(
 				struct ipq807x_edma_txdesc_ring) *
 				ehw->txdesc_rings));
 	if (!ehw->txdesc_ring) {
@@ -1138,7 +1164,7 @@ static int ipq807x_edma_alloc_rings(struct ipq807x_edma_hw *ehw)
 		goto txdesc_ring_alloc_fail;
 	}
 
-	ehw->txcmpl_ring = ipq807x_alloc_mem((sizeof(
+	ehw->txcmpl_ring = ipq807x_alloc_memalign((sizeof(
 				struct ipq807x_edma_txcmpl_ring) *
 				ehw->txcmpl_rings));
 
@@ -1637,7 +1663,7 @@ int ipq807x_edma_init(void *edma_board_cfg)
 	memset(enet_addr, 0, sizeof(enet_addr));
 	memset(&ledma_cfg, 0, sizeof(ledma_cfg));
 	edma_cfg = &ledma_cfg;
-	strcpy(edma_cfg->phy_name, "IPQ MDIO0");
+	strlcpy(edma_cfg->phy_name, "IPQ MDIO0", sizeof(edma_cfg->phy_name));
 
 	/* Getting the MAC address from ART partition */
 	ret = get_eth_mac_address(enet_addr, IPQ807X_EDMA_DEV);
@@ -1701,7 +1727,7 @@ int ipq807x_edma_init(void *edma_board_cfg)
 			dev[i]->enetaddr[4],
 			dev[i]->enetaddr[5]);
 
-		sprintf(dev[i]->name, "eth%d", i);
+		snprintf(dev[i]->name, sizeof(dev[i]->name), "eth%d", i);
 
 		ipq807x_edma_dev[i]->dev  = dev[i];
 		ipq807x_edma_dev[i]->mac_unit = edma_cfg->unit;
@@ -1753,6 +1779,7 @@ int ipq807x_edma_init(void *edma_board_cfg)
 				case AQUANTIA_PHY_109:
 				case AQUANTIA_PHY_111:
 				case AQUANTIA_PHY_112:
+				case AQUANTIA_PHY_111B0:
 					ipq_board_fw_download(phy_addr);
 					ipq_qca_aquantia_phy_init(&ipq807x_edma_dev[i]->ops[phy_id], phy_addr);
 					break;

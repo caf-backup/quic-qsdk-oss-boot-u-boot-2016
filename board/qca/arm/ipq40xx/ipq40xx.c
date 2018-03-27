@@ -33,11 +33,26 @@
 #include "ipq40xx_edma_eth.h"
 #include "qca_common.h"
 #include "ipq_phy.h"
+#include <sdhci.h>
 
 #define DLOAD_MAGIC_COOKIE 0x10
+#define TCSR_USB_HSPHY_DEVICE_MODE		0x00C700E70
 DECLARE_GLOBAL_DATA_PTR;
 
+#ifndef CONFIG_SDHCI_SUPPORT
 qca_mmc mmc_host;
+#else
+struct sdhci_host mmc_host;
+#endif
+
+#define ADSS_AUDIO_RXM_CBCR_REG			0x0770012C
+#define ADSS_AUDIO_RXB_CBCR_REG			0x0770010C
+#define ADSS_AUDIO_TXB_CBCR_REG			0x0770014C
+#define ADSS_AUDIO_SPDIF_CBCR_REG		0x07700154
+#define ADSS_AUDIO_SPDIF_DIV2_CBCR_REG		0x0770015C
+#define ADSS_AUDIO_TXM_CBCR_REG			0x0770016C
+#define ADSS_AUDIO_PCM_CBCR_REG			0x077001AC
+#define ADSS_AUDIO_SPDIF_IN_FAST_CBCR_REG	0x077001EC
 
 const char *rsvd_node = "/reserved-memory";
 const char *del_node[] = {"rsvd1",
@@ -61,7 +76,7 @@ struct dumpinfo_t dumpinfo_n[] = {
 int dump_entries_n = ARRAY_SIZE(dumpinfo_n);
 
 struct dumpinfo_t dumpinfo_s[] = {
-	{ "EBICS0.bin", CONFIG_QCA_KERNEL_CRASHDUMP_ADDRESS,
+	{ "EBICS_S0.BIN", CONFIG_QCA_KERNEL_CRASHDUMP_ADDRESS,
 	  CONFIG_CPU_CONTEXT_DUMP_SIZE, 0 },
 };
 
@@ -174,13 +189,13 @@ int board_eth_init(bd_t *bis)
 	case MACH_TYPE_IPQ40XX_AP_DK01_1_S1:
 	case MACH_TYPE_IPQ40XX_AP_DK01_1_C2:
 		/* 8075 out of reset */
-		mdelay(100);
+		mdelay(1);
 		gpio_set_value(62, 1);
 		ipq40xx_register_switch(ipq_qca8075_phy_init);
 		break;
 	case MACH_TYPE_IPQ40XX_AP_DK01_1_C1:
 		/* 8075 out of reset */
-		mdelay(100);
+		mdelay(1);
 		gpio_set_value(59, 1);
 		ipq40xx_register_switch(ipq_qca8075_phy_init);
 		break;
@@ -188,25 +203,27 @@ int board_eth_init(bd_t *bis)
 	case MACH_TYPE_IPQ40XX_AP_DK04_1_C1:
 	case MACH_TYPE_IPQ40XX_AP_DK04_1_C3:
 		/* 8075 out of reset */
-		mdelay(100);
+		mdelay(1);
 		gpio_set_value(47, 1);
 		ipq40xx_register_switch(ipq_qca8075_phy_init);
 		break;
 	case MACH_TYPE_IPQ40XX_AP_DK04_1_C2:
 		/* 8075 out of reset */
-		mdelay(100);
+		mdelay(1);
 		gpio_set_value(67, 1);
 		ipq40xx_register_switch(ipq_qca8075_phy_init);
 		break;
 	case MACH_TYPE_IPQ40XX_AP_DK06_1_C1:
 		/* 8075 out of reset */
-		mdelay(100);
+		mdelay(1);
 		gpio_set_value(19, 1);
 		ipq40xx_register_switch(ipq_qca8075_phy_init);
 		break;
 	case MACH_TYPE_IPQ40XX_AP_DK07_1_C1:
+	case MACH_TYPE_IPQ40XX_AP_DK07_1_C2:
+	case MACH_TYPE_IPQ40XX_AP_DK07_1_C3:
 		/* 8075 out of reset */
-		mdelay(100);
+		mdelay(1);
 		gpio_set_value(41, 1);
 		ipq40xx_register_switch(ipq_qca8075_phy_init);
 		break;
@@ -227,6 +244,21 @@ int board_eth_init(bd_t *bis)
 }
 
 #ifdef CONFIG_QCA_MMC
+void emmc_clock_reset(void)
+{
+	writel(0x1, GCC_SDCC1_BCR);
+	udelay(10);
+	writel(0x0, GCC_SDCC1_BCR);
+}
+
+void emmc_sdhci_init(void)
+{
+	writel(readl(MSM_SDC1_MCI_HC_MODE) & (~0x1), MSM_SDC1_MCI_HC_MODE);
+	writel(readl(MSM_SDC1_BASE) | (1 << 7), MSM_SDC1_BASE); //SW_RST
+	udelay(10);
+	writel(readl(MSM_SDC1_MCI_HC_MODE) | (0x1), MSM_SDC1_MCI_HC_MODE);
+}
+
 int board_mmc_init(bd_t *bis)
 {
 	int ret;
@@ -249,12 +281,30 @@ int board_mmc_init(bd_t *bis)
 		return -1;
         }
 
+#ifndef CONFIG_SDHCI_SUPPORT
 	mmc_host.base = base;
 	mmc_host.clk_mode = MMC_IDENTIFY_MODE;
 	emmc_clock_config(mmc_host.clk_mode);
 
 	ret = qca_mmc_init(bis, &mmc_host);
+#else
+	mmc_host.ioaddr = (void *)MSM_SDC1_SDHCI_BASE;
+	mmc_host.voltages = MMC_VDD_165_195;
+	mmc_host.version = SDHCI_SPEC_300;
+	mmc_host.cfg.part_type = PART_TYPE_EFI;
+	mmc_host.quirks = SDHCI_QUIRK_BROKEN_VOLTAGE;
 
+	emmc_clock_disable();
+	emmc_clock_reset();
+	udelay(10);
+	emmc_clock_config(MMC_DATA_TRANSFER_SDHCI_MODE);
+	emmc_sdhci_init();
+
+	if (add_sdhci(&mmc_host, 200000000, 400000)) {
+		printf("add_sdhci fail!\n");
+		return -1;
+	}
+#endif
 	if (!ret && sfi->flash_type == SMEM_BOOT_MMC_FLASH) {
 		ret = board_mmc_env_init(mmc_host);
 	}
@@ -308,6 +358,25 @@ void board_pci_deinit(void)
 	pcie_clock_disable(GCC_PCIE_AHB_CBCR);
 }
 
+/*
+ * The audio block is out of reset by default due to which the
+ * audio clock blocks are also turned on. When audio TLMM is
+ * enabled in kernel, the clocks will also be available at the
+ * pins which causes pop noise during kernel bootup.
+ * To avoid this, the clocks are turned off in u-boot.
+ */
+void disable_audio_clks(void)
+{
+	writel(0, ADSS_AUDIO_RXM_CBCR_REG);
+	writel(0, ADSS_AUDIO_RXB_CBCR_REG);
+	writel(0, ADSS_AUDIO_TXB_CBCR_REG);
+	writel(0, ADSS_AUDIO_SPDIF_CBCR_REG);
+	writel(0, ADSS_AUDIO_SPDIF_DIV2_CBCR_REG);
+	writel(0, ADSS_AUDIO_TXM_CBCR_REG);
+	writel(0, ADSS_AUDIO_PCM_CBCR_REG);
+	writel(0, ADSS_AUDIO_SPDIF_IN_FAST_CBCR_REG);
+}
+
 void ipq_fdt_fixup_socinfo(void *blob)
 {
 	return;
@@ -315,6 +384,58 @@ void ipq_fdt_fixup_socinfo(void *blob)
 
 void ipq_fdt_fixup_usb_device_mode(void *blob)
 {
+	int nodeoff, ret, i;
+	int phy_mode = htonl(TCSR_USB_HSPHY_DEVICE_MODE);
+	const char *mode = "peripheral";
+	const char *node[] = {"/soc/ssphy", "/soc/hsphy", "/soc/usb3"};
+	char *usb_cfg;
+
+	usb_cfg = getenv("usb_mode");
+	if (!usb_cfg)
+		return;
+
+	if (strcmp(usb_cfg, "device"))
+		return;
+
+	nodeoff = fdt_path_offset(blob, "/soc/tcsr");
+	if (nodeoff < 0) {
+		printf("ipq: fdt fixup unable to find node /soc/tcsr\n");
+		return;
+	}
+	ret = fdt_setprop(blob, nodeoff, "ipq,usb-hsphy-mode-select",
+					&phy_mode, sizeof(phy_mode));
+	if (ret != 0) {
+		printf("ipq: unable to set prop: %d\n", ret);
+		return;
+	}
+
+	phy_mode = 0;
+	for (i = 0; i < (sizeof(node) / sizeof(node[0])); i++) {
+		nodeoff = fdt_path_offset(blob, node[i]);
+		if (nodeoff < 0) {
+			printf("ipq: fdt fixup unable to find node %s\n",
+								node[i]);
+			continue;
+		}
+		ret = fdt_setprop(blob, nodeoff, "qca,host",
+					&phy_mode, sizeof(phy_mode));
+		if (ret != 0) {
+			printf("ipq: unable to set prop: %d\n", ret);
+			continue;
+		}
+	}
+
+	nodeoff = fdt_path_offset(blob, "/soc/usb3/dwc3");
+	if (nodeoff < 0) {
+		printf("ipq: fdt fixup unable to find node /soc/usb3/dwc3\n");
+		return;
+	}
+	ret = fdt_setprop(blob, nodeoff, "dr_mode",
+				mode, (strlen(mode) + 1));
+	if (ret != 0) {
+		printf("ipq: unable to set prop: %d\n", ret);
+		return;
+	}
 	return;
 }
 

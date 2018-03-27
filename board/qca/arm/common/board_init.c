@@ -16,7 +16,10 @@
 #include <asm/arch-qca-common/smem.h>
 #include <asm/arch-qca-common/uart.h>
 #include <asm/arch-qca-common/gpio.h>
+#include <memalign.h>
 #include <fdtdec.h>
+#include <mmc.h>
+#include <sdhci.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -31,6 +34,12 @@ extern int sf_saveenv(void);
 extern env_t *mmc_env_ptr;
 extern char *mmc_env_name_spec;
 extern int mmc_saveenv(void);
+
+#ifndef CONFIG_SDHCI_SUPPORT
+extern qca_mmc mmc_host;
+#else
+extern struct sdhci_host mmc_host;
+#endif
 #endif
 
 env_t *env_ptr;
@@ -53,6 +62,11 @@ void board_usb_deinit(int id)
 }
 __weak
 void board_pci_deinit(void)
+{
+	return 0;
+}
+__weak
+void disable_audio_clks(void)
 {
 	return 0;
 }
@@ -172,6 +186,7 @@ int board_init(void)
 	}
 
 	aquantia_phy_reset_init();
+	disable_audio_clks();
 
 	return 0;
 }
@@ -222,6 +237,41 @@ int board_early_init_f(void)
 	return 0;
 }
 
+#ifdef CONFIG_FLASH_PROTECT
+void board_flash_protect(void)
+{
+	int num_part;
+	int i;
+	int ret;
+#ifdef CONFIG_QCA_MMC
+	block_dev_desc_t *mmc_dev;
+	disk_partition_t info;
+
+	mmc_dev = mmc_get_dev(mmc_host.dev_num);
+	if (mmc_dev != NULL && mmc_dev->type != DEV_TYPE_UNKNOWN) {
+		num_part = get_partition_count_efi(mmc_dev);
+		if (num_part < 0) {
+			printf("Both primary & backup GPT are invalid, skipping mmc write protection.\n");
+			return;
+		}
+
+		for (i = 1; i <= num_part; i++) {
+			ret = get_partition_info_efi(mmc_dev, i, &info);
+			if (ret == -1)
+				return;
+			if (!ret && info.readonly
+			    && !mmc_write_protect(mmc_host.mmc,
+						  info.start,
+						  info.size, 1))
+				printf("\"%s\""
+					"-protected MMC partition\n",
+					info.name);
+		}
+	}
+#endif
+}
+#endif
+
 int board_late_init(void)
 {
 	unsigned int machid;
@@ -238,6 +288,9 @@ int board_late_init(void)
 		setenv_addr("machid", (void *)machid);
 		gd->bd->bi_arch_number = machid;
 	}
+#ifdef CONFIG_FLASH_PROTECT
+	board_flash_protect();
+#endif
 	set_ethmac_addr();
 	return 0;
 }
@@ -292,12 +345,12 @@ void report_l2err(u32 l2esr)
 }
 #endif
 
-void enable_caches(void)
+__weak void enable_caches(void)
 {
 	icache_enable();
 }
 
-void disable_caches(void)
+__weak void disable_caches(void)
 {
 	icache_disable();
 }

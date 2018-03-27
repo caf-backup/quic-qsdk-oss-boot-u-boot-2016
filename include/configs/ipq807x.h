@@ -137,6 +137,7 @@ extern loff_t board_env_size;
 #define CONFIG_SYS_MALLOC_LEN		(CONFIG_ENV_SIZE_MAX + (1024 << 10))
 
 #define CONFIG_ENV_IS_IN_NAND		1
+#define CONFIG_FLASH_PROTECT
 
 /* Allow to overwrite serial and ethaddr */
 #define CONFIG_ENV_OVERWRITE
@@ -156,6 +157,7 @@ extern loff_t board_env_size;
 #define CONFIG_SF_DEFAULT_MODE	SPI_MODE_0
 #define CONFIG_SF_DEFAULT_SPEED	(48 * 1000 * 1000)
 #define CONFIG_SPI_FLASH_BAR	1
+#define CONFIG_SPI_FLASH_USE_4K_SECTORS
 
 #define CONFIG_EFI_PARTITION
 #define CONFIG_QCA_BAM			1
@@ -325,7 +327,6 @@ extern loff_t board_env_size;
  * Cache flush and invalidation based on L1 cache, so the cache line
  * size is configured to 64 */
 #define CONFIG_SYS_CACHELINE_SIZE  64
-/*#define CONFIG_SYS_DCACHE_OFF*/
 
 /* Enabling this flag will report any L2 errors.
  * By default we are disabling it */

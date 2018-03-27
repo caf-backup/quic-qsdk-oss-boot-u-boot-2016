@@ -76,7 +76,7 @@ struct dumpinfo_t dumpinfo_n[] = {
 	{ "CODERAM.BIN", 0x00200000, 0x00024000, 0 },
 	{ "DATARAM.BIN", 0x00290000, 0x00010000, 0 },
 	{ "MSGRAM.BIN", 0x00060000, 0x00006000, 1 },
-	{ "IMEM.BIN", 0x08600000, 0x00006000, 0 },
+	{ "IMEM.BIN", 0x08600000, 0x00001000, 0 },
 	{ "NSSIMEM.BIN", 0x08600658, 0x00060000, 0, 1, 0x2000 },
 };
 int dump_entries_n = ARRAY_SIZE(dumpinfo_n);
@@ -86,7 +86,7 @@ struct dumpinfo_t dumpinfo_s[] = {
 	{ "EBICS_S1.BIN", CONFIG_TZ_END_ADDR, 0x10000000, 0 },
 	{ "DATARAM.BIN", 0x00290000, 0x00010000, 0 },
 	{ "MSGRAM.BIN", 0x00060000, 0x00006000, 1 },
-	{ "IMEM.BIN", 0x08600000, 0x00006000, 0 },
+	{ "IMEM.BIN", 0x08600000, 0x00001000, 0 },
 	{ "NSSIMEM.BIN", 0x08600658, 0x00060000, 0, 1, 0x2000 },
 };
 int dump_entries_s = ARRAY_SIZE(dumpinfo_s);
@@ -399,13 +399,13 @@ void eth_clock_enable(void)
 	 */
 
 	/* bring phy out of reset */
-	writel(0x203, tlmm_base);
-	writel(0, tlmm_base + 0x4);
-	writel(2, tlmm_base + 0x4);
 	writel(7, tlmm_base + 0x1f000);
 	writel(7, tlmm_base + 0x20000);
+	writel(0x203, tlmm_base);
+	writel(0, tlmm_base + 0x4);
 	aquantia_phy_reset_init();
 	mdelay(500);
+	writel(2, tlmm_base + 0x4);
 	aquantia_phy_reset_init_done();
 	mdelay(500);
 }
@@ -425,7 +425,7 @@ int board_eth_init(bd_t *bis)
 
 int board_mmc_init(bd_t *bis)
 {
-	int ret;
+	int ret = 0;
 	qca_smem_flash_info_t *sfi = &qca_smem_flash_info;
 
 #ifndef CONFIG_SDHCI_SUPPORT
@@ -540,7 +540,7 @@ void board_pci_init(int id)
 	int node, gpio_node;
 	char name[16];
 
-	sprintf(name, "pci%d", id);
+	snprintf(name, sizeof(name), "pci%d", id);
 	node = fdt_path_offset(gd->fdt_blob, name);
 	if (node < 0) {
 		printf("Could not find PCI in device tree\n");
@@ -562,7 +562,7 @@ void board_pci_deinit()
 	struct fdt_resource pci_phy;
 
 	for (i = 0; i < PCI_MAX_DEVICES; i++) {
-		sprintf(name, "pci%d", i);
+		snprintf(name, sizeof(name), "pci%d", i);
 		node = fdt_path_offset(gd->fdt_blob, name);
 		if (node < 0) {
 			printf("Could not find PCI in device tree\n");
@@ -705,7 +705,8 @@ static void usb_init_ssphy(int index)
 	}
 	else if (index == 1) {
 		phybase = USB1_SSPHY_BASE;
-	}
+	} else
+		return;
 
 	out_8( phybase + USB3_PHY_POWER_DOWN_CONTROL,0x1);
 	out_8(phybase + QSERDES_COM_SYSCLK_EN_SEL,0x1a);

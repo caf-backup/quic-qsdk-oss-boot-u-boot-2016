@@ -87,6 +87,8 @@
 
 #define CONFIG_HW_WATCHDOG
 
+#define CONFIG_SYS_DEVICE_NULLDEV
+
 /* Environment */
 #define CONFIG_MSM_PCOMM
 #define CONFIG_ARCH_CPU_INIT
@@ -265,6 +267,7 @@ typedef struct {
 #define CONFIG_ENV_IS_IN_SPI_FLASH	1
 #define CONFIG_ENV_SECT_SIZE        	(64 * 1024)
 
+#define CONFIG_SPI_FLASH_USE_4K_SECTORS
 #define CONFIG_SF_DEFAULT_BUS 0
 #define CONFIG_SF_DEFAULT_CS 0
 #define CONFIG_SF_DEFAULT_SPEED         (48 * 1000 * 1000)
@@ -331,7 +334,7 @@ typedef struct {
  * Cache flush and invalidation based on L1 cache, so the cache line
  * size is configured to 64 */
 #define CONFIG_SYS_CACHELINE_SIZE  64
-#define CONFIG_SYS_DCACHE_OFF
+/*#define CONFIG_SYS_DCACHE_OFF*/
 
 /* Enabling this flag will report any L2 errors.
  * By default we are disabling it */

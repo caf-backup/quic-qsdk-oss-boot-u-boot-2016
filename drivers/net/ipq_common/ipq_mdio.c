@@ -180,14 +180,14 @@ int ipq_sw_mdio_init(const char *name)
 	bus->read = ipq_phy_read;
 	bus->write = ipq_phy_write;
 	bus->reset = NULL;
-	sprintf(bus->name, name);
+	snprintf(bus->name, MDIO_NAME_LEN, name);
 	return mdio_register(bus);
 }
 
 static int do_ipq_mdio(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[])
 {
 	char		op[2];
-	unsigned int	addr, reg;
+	unsigned int	addr = 0, reg = 0;
 	unsigned short	data = 0;
 
 	if (argc < 2)

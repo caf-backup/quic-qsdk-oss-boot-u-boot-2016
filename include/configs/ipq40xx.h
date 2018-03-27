@@ -70,6 +70,8 @@
 
 #define CONFIG_IPQ_APPSBL_IMG_TYPE	0x5
 
+#define CONFIG_SYS_DEVICE_NULLDEV
+
 /*
  * IPQ_TFTP_MIN_ADDR: Starting address of Linux HLOS region.
  * CONFIG_TZ_END_ADDR: Ending address of Trust Zone and starting
@@ -127,7 +129,7 @@ typedef struct {
 #define CONFIG_ENV_SIZE_MAX		(256 << 10) /* 256 KB */
 #define CONFIG_ENV_RANGE		board_env_range
 #define CONFIG_ENV_SIZE			(256 << 10) /* 256 KB */
-#define CONFIG_SYS_MALLOC_LEN		(CONFIG_ENV_SIZE_MAX + (256 << 10))
+#define CONFIG_SYS_MALLOC_LEN		(CONFIG_ENV_SIZE_MAX + (2048 << 10))
 
 #define CONFIG_CMD_MEMTEST
 #define CONFIG_SYS_MEMTEST_START	CONFIG_SYS_SDRAM_BASE + 0x1300000
@@ -173,6 +175,7 @@ typedef struct {
  * Cache flush and invalidation based on L1 cache, so the cache line
  * size is configured to 64 */
 #define CONFIG_SYS_CACHELINE_SIZE	64
+#define CONFIG_SYS_DCACHE_OFF
 
 #define CONFIG_QCA_BAM                 1
 /*
@@ -212,12 +215,15 @@ typedef struct {
 #define CONFIG_SPI_FLASH
 #define CONFIG_CMD_SF
 #define CONFIG_SPI_FLASH_STMICRO
+#define CONFIG_SPI_FLASH_SPANSION
 #define CONFIG_SPI_FLASH_WINBOND
 #define CONFIG_SPI_FLASH_MACRONIX
 #define CONFIG_SPI_FLASH_GIGADEVICE
 #define CONFIG_ENV_IS_IN_SPI_FLASH	1
 #define CONFIG_ENV_SECT_SIZE        	(64 * 1024)
 
+#define CONFIG_SPI_FLASH_USE_4K_SECTORS
+#define CONFIG_SPI_NOR_GENERIC
 #define CONFIG_SF_DEFAULT_BUS 0
 #define CONFIG_SF_DEFAULT_CS 0
 #define CONFIG_SF_DEFAULT_MODE SPI_MODE_0
@@ -295,10 +301,13 @@ typedef struct {
 #define CONFIG_MMC
 #define CONFIG_ENV_IS_IN_MMC
 #define CONFIG_CMD_MMC
+#define CONFIG_SDHCI
 #define CONFIG_SDHCI_QCA
 #define CONFIG_GENERIC_MMC
 #define CONFIG_EFI_PARTITION
 #define CONFIG_SYS_MMC_ENV_DEV  0
+#define CONFIG_SDHCI_SUPPORT
+#define CONFIG_MMC_ADMA
 #endif
 
 #define PCI_MAX_DEVICES	1

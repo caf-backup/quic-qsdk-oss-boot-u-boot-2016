@@ -166,6 +166,12 @@ void reset_crashdump(void)
 
 void reset_cpu(unsigned long a)
 {
+	int reset_s17_gpio_node;
+
+	reset_s17_gpio_node = fdt_path_offset(gd->fdt_blob, "/reset_s17_gpio");
+	if (reset_s17_gpio_node)
+		qca_gpio_init(reset_s17_gpio_node);
+
 	reset_crashdump();
 
 	printf("\nResetting with watch dog!\n");
@@ -533,20 +539,16 @@ void board_pci_deinit()
 void ipq_fdt_fixup_socinfo(void *blob)
 {
 	uint32_t cpu_type;
-	int nodeoff, ret;
+	int ret;
 
 	ret = ipq_smem_get_socinfo_cpu_type(&cpu_type);
 	if (ret) {
 		printf("ipq: fdt fixup cannot get socinfo\n");
 		return;
 	}
-	nodeoff = fdt_node_offset_by_compatible(blob, -1, "qcom,ipq8064");
 
-	if (nodeoff < 0) {
-		printf("ipq: fdt fixup cannot find compatible node\n");
-		return;
-	}
-	ret = fdt_setprop(blob, nodeoff, "cpu_type",
+	/* Add "cpu_type" to root node of the devicetree*/
+	ret = fdt_setprop(blob, 0, "cpu_type",
 			&cpu_type, sizeof(cpu_type));
 	if (ret)
 		printf("%s: cannot set cpu type %d\n", __func__, ret);
@@ -927,6 +929,30 @@ int ipq_get_tz_version(char *version_name, int buf_size)
 	return 0;
 }
 
+void forever(void) { while (1); }
+/*
+ * Set the cold/warm boot address for one of the CPU cores.
+ */
+int scm_set_boot_addr(void)
+{
+	int ret;
+	struct {
+		unsigned int flags;
+		unsigned long addr;
+	} cmd;
+
+	cmd.addr = (unsigned long)forever;
+	cmd.flags = SCM_FLAG_COLDBOOT_CPU1;
+
+	ret = scm_call(SCM_SVC_BOOT, SCM_BOOT_ADDR,
+				&cmd, sizeof(cmd), NULL, 0);
+	if (ret) {
+		printf("--- %s: scm_call failed ret = %d\n", __func__, ret);
+	}
+
+	return ret;
+}
+
 void clear_l2cache_err(void)
 {
         unsigned int val;
@@ -941,4 +967,16 @@ void clear_l2cache_err(void)
 #ifndef CONFIG_SYS_DCACHE_OFF
         set_l2_indirect_reg(L2ESR_IND_ADDR, val);
 #endif
+}
+
+void enable_caches(void)
+{
+	icache_enable();
+	dcache_enable();
+}
+
+void disable_caches(void)
+{
+	icache_disable();
+	dcache_disable();
 }

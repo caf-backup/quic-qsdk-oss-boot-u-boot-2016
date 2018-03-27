@@ -28,6 +28,8 @@
 #include <nand.h>
 #include <spi_flash.h>
 #include <spi.h>
+#include <asm/arch-qca-common/iomap.h>
+#include <asm/io.h>
 
 #define DLOAD_MAGIC_COOKIE 0x10
 #define XMK_STR(x)#x
@@ -106,6 +108,40 @@ static int tftpdump (int is_aligned_access, uint32_t memaddr, uint32_t size, cha
 
 }
 
+__weak int scm_set_boot_addr(void)
+{
+	return -1;
+}
+
+static int krait_release_secondary(void)
+{
+	writel(0xa4, CPU1_APCS_SAW2_VCTL);
+	barrier();
+	udelay(512);
+
+	writel(0x109, CPU1_APCS_CPU_PWR_CTL);
+	writel(0x101, CPU1_APCS_CPU_PWR_CTL);
+	barrier();
+	udelay(1);
+
+	writel(0x121, CPU1_APCS_CPU_PWR_CTL);
+	barrier();
+	udelay(2);
+
+	writel(0x120, CPU1_APCS_CPU_PWR_CTL);
+	barrier();
+	udelay(2);
+
+	writel(0x100, CPU1_APCS_CPU_PWR_CTL);
+	barrier();
+	udelay(100);
+
+	writel(0x180, CPU1_APCS_CPU_PWR_CTL);
+	barrier();
+
+	return 0;
+}
+
 static int do_dumpqca_data(void)
 {
 	char *serverip = NULL;
@@ -132,6 +168,11 @@ static int do_dumpqca_data(void)
 	if (ret == 0 && buf == 1) {
 		dumpinfo = dumpinfo_s;
 		dump_entries = dump_entries_s;
+	}
+
+	if (scm_set_boot_addr() == 0) {
+		/* Pull Core-1 out of reset, iff scm call succeeds */
+		krait_release_secondary();
 	}
 
 	for (indx = 0; indx < dump_entries; indx++) {
@@ -324,13 +365,16 @@ int config_select(unsigned int addr, char *rcmd, int rcmd_size)
 			return -1;
 		}
 
-		sprintf((char *)dtb_config_name, "%s", config);
+		snprintf((char *)dtb_config_name,
+			 sizeof(dtb_config_name), "%s", config);
 
 		ipq_smem_get_socinfo_version((uint32_t *)&soc_version);
 		if(SOCINFO_VERSION_MAJOR(soc_version) >= 2) {
-			sprintf(dtb_config_name + strlen("config@"), "v%d.0-%s",
-					SOCINFO_VERSION_MAJOR(soc_version),
-					config + strlen("config@"));
+			snprintf(dtb_config_name + strlen("config@"),
+				 sizeof(dtb_config_name) - strlen("config@"),
+				 "v%d.0-%s",
+				 SOCINFO_VERSION_MAJOR(soc_version),
+				 config + strlen("config@"));
 		}
 	}
 
@@ -376,7 +420,8 @@ static int do_boot_signedimg(cmd_tbl_t *cmdtp, int flag, int argc, char *const a
 		if (debug) {
 			printf("Using nand device %d\n", CONFIG_SPI_FLASH_INFO_IDX);
 		}
-		sprintf(runcmd, "nand device %d", CONFIG_SPI_FLASH_INFO_IDX);
+		snprintf(runcmd, sizeof(runcmd),
+			 "nand device %d", CONFIG_SPI_FLASH_INFO_IDX);
 		run_command(runcmd, 0);
 
 	} else if (sfi->flash_type == SMEM_BOOT_NAND_FLASH) {
@@ -499,9 +544,6 @@ static int do_boot_signedimg(cmd_tbl_t *cmdtp, int flag, int argc, char *const a
 		return CMD_RET_FAILURE;
 
 	dcache_enable();
-#ifdef CONFIG_QCA_MMC
-	board_mmc_deinit();
-#endif
 
 	board_pci_deinit();
 #ifdef CONFIG_USB_XHCI_IPQ
