@@ -95,6 +95,7 @@
 #define CONFIG_SYS_SDRAM_SIZE           0x10000000
 #define CONFIG_MAX_RAM_BANK_SIZE        CONFIG_SYS_SDRAM_SIZE
 #define CONFIG_SYS_LOAD_ADDR            (CONFIG_SYS_SDRAM_BASE + (64 << 20))
+#define CONFIG_ROOTFS_LOAD_ADDR         (CONFIG_SYS_SDRAM_BASE + (32 << 20))
 
 #define QCA_KERNEL_START_ADDR		CONFIG_SYS_SDRAM_BASE
 #define QCA_DRAM_KERNEL_SIZE		CONFIG_SYS_SDRAM_SIZE
@@ -140,6 +141,7 @@ extern loff_t board_env_size;
 
 #define CONFIG_ENV_IS_IN_NAND		1
 #define CONFIG_FLASH_PROTECT
+#define CONFIG_CMD_FLASHWRITE
 
 /* Allow to overwrite serial and ethaddr */
 #define CONFIG_ENV_OVERWRITE
@@ -349,5 +351,7 @@ extern loff_t board_env_size;
 
 #define CONFIG_CMD_RUN
 #define CONFIG_ARMV7_PSCI
+#undef CONFIG_IPQ_ROOTFS_AUTH
+
 #endif /* _IPQCDP_H */
 
