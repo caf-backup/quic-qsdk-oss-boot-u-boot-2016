@@ -210,20 +210,21 @@ void ipq_fdt_mem_rsvd_fixup(void *blob)
 					del_node[i]);
 		}
 
-		for (i = 0; add_node[i].nodename; i++) {
+		for (i = 0; add_fdt_node[i].nodename; i++) {
 			nodeoff = fdt_add_subnode(blob, parentoff,
-						  add_node[i].nodename);
+						  add_fdt_node[i].nodename);
 			if (nodeoff < 0) {
 				debug("fdt-fixup: unable to add subnode (%s)\n",
-					add_node[i].nodename);
+					add_fdt_node[i].nodename);
 				continue;
 			}
 			ret = fdt_setprop(blob, nodeoff, "no-map", NULL, 0);
 			if (ret != 0)
 				debug("fdt-fixup: unable to set property\n");
 
-			ret = fdt_setprop(blob, nodeoff, "reg",add_node[i].val,
-					  sizeof(add_node[i].val));
+			ret = fdt_setprop(blob, nodeoff, "reg",
+					  add_fdt_node[i].val,
+					  sizeof(add_fdt_node[i].val));
 			if (ret != 0)
 				debug("fdt-fixup: unable to set property\n");
 		}
@@ -494,10 +495,11 @@ int ft_board_setup(void *blob, bd_t *bd)
 	u64 memory_start = CONFIG_SYS_SDRAM_BASE;
 	u64 memory_size = gd->ram_size;
 	unsigned long gmac_no;
+	uint32_t flash_type;
 	char *s;
 	char *mtdparts = NULL;
 	char parts_str[4096];
-	int len = sizeof(parts_str);
+	int len = sizeof(parts_str), ret;
 	qca_smem_flash_info_t *sfi = &qca_smem_flash_info;
 	struct flash_node_info nodes[] = {
 		{ "qcom,msm-nand", MTD_DEV_TYPE_NAND, 0 },
@@ -538,6 +540,16 @@ int ft_board_setup(void *blob, bd_t *bd)
 		debug("MTDIDS: %s\n", getenv("mtdids"));
 		ipq_fdt_fixup_mtdparts(blob, nodes);
 	}
+
+	/* Add "flash_type" to root node of the devicetree*/
+	ret = get_current_flash_type(&flash_type);
+	if (!ret) {
+		ret = fdt_setprop(blob, 0, "flash_type", &flash_type,
+				sizeof(flash_type));
+		if (ret)
+			printf("%s: cannot set flash type %d\n", __func__, ret);
+	}
+
 	ipq_fdt_fixup_socinfo(blob);
 	s = (getenv("gmacnumber"));
 	if (s) {

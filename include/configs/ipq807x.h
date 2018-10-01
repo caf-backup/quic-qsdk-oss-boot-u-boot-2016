@@ -34,6 +34,8 @@
 #define CONFIG_SYS_CACHELINE_SIZE   64
 #define CONFIG_SYS_VSNPRINTF
 
+#define CONFIG_SYS_NONCACHED_MEMORY     (1 << 20)
+
 #define CONFIG_IPQ807X_UART
 #define CONFIG_NR_DRAM_BANKS            1
 #define CONFIG_SKIP_LOWLEVEL_INIT
@@ -303,6 +305,7 @@ extern loff_t board_env_size;
 #define CONFIG_IPQ_MDIO			1
 #define CONFIG_QCA8075_PHY		1
 #define CONFIG_QCA8033_PHY		1
+#define CONFIG_QCA8081_PHY		1
 #define CONFIG_QCA_AQUANTIA_PHY		1
 #define CONFIG_IPQ_ETH_INIT_DEFER
 

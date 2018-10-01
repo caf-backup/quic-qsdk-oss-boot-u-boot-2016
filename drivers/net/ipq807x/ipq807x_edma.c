@@ -45,6 +45,8 @@ DECLARE_GLOBAL_DATA_PTR;
 static struct ipq807x_eth_dev *ipq807x_edma_dev[IPQ807X_EDMA_DEV];
 
 uchar ipq807x_def_enetaddr[6] = {0x00, 0x03, 0x7F, 0xBA, 0xDB, 0xAD};
+phy_info_t *phy_info[PHY_MAX] = {0};
+int sgmii_mode[2] = {0};
 
 extern void qca8075_ess_reset(void);
 extern void psgmii_self_test(void);
@@ -61,6 +63,7 @@ extern int ipq_qca8033_phy_init(struct phy_ops **ops, u32 phy_id);
 extern int ipq_qca_aquantia_phy_init(struct phy_ops **ops, u32 phy_id);
 static int tftp_acl_our_port;
 
+static int uniphy_phy_mode;
 /*
  * EDMA hardware instance
  */
@@ -110,7 +113,6 @@ void ipq807x_edma_reg_write(uint32_t reg_off, uint32_t val)
 int ipq807x_edma_alloc_rx_buffer(struct ipq807x_edma_hw *ehw,
 		struct ipq807x_edma_rxfill_ring *rxfill_ring)
 {
-	u32 skb;
 	uint16_t num_alloc = 0;
 	uint16_t cons, next, counter;
 	struct ipq807x_edma_rxfill_desc *rxfill_desc;
@@ -149,11 +151,6 @@ int ipq807x_edma_alloc_rx_buffer(struct ipq807x_edma_hw *ehw,
 			break;
 		}
 		/*
-		 * Allocate buffer
-		 */
-		skb = virt_to_phys(net_rx_packets[next]);
-
-		/*
 		 * Get RXFILL descriptor
 		 */
 		rxfill_desc = IPQ807X_EDMA_RXFILL_DESC(rxfill_ring, next);
@@ -161,30 +158,18 @@ int ipq807x_edma_alloc_rx_buffer(struct ipq807x_edma_hw *ehw,
 		/*
 		 * Make room for Rx preheader
 		 */
-		rxph = (struct ipq807x_edma_rx_preheader *)skb;
+		rxph = (struct ipq807x_edma_rx_preheader *)rxfill_desc->buffer_addr;
 
 		/*
 		 * Fill the opaque value
 		 */
-		rxph->opaque = cpu_to_le32(skb);
+		rxph->opaque = next;
 
 		/*
 		 * Save buffer size in RXFILL descriptor
 		 */
 		rxfill_desc->word1 = cpu_to_le32(IPQ807X_EDMA_RX_BUFF_SIZE &
 					 IPQ807X_EDMA_RXFILL_BUF_SIZE_MASK);
-
-		/*
-		 * Map Rx buffer for DMA
-		 */
-		rxfill_desc->buffer_addr = cpu_to_le32(skb);
-
-		flush_dcache_range((unsigned long)rxfill_desc,
-				(unsigned long)rxfill_desc +
-				sizeof(struct ipq807x_edma_rxfill_desc));
-		flush_dcache_range((unsigned long)(rxfill_desc->buffer_addr),
-				(unsigned long)(rxfill_desc->buffer_addr) +
-				PKTSIZE_ALIGN);
 
 		num_alloc++;
 		next = counter;
@@ -308,11 +293,6 @@ uint32_t ipq807x_edma_clean_rx(struct ipq807x_edma_common_info *c_info,
 		}
 
 		rxdesc_desc = IPQ807X_EDMA_RXDESC_DESC(rxdesc_ring, cons_idx);
-
-		invalidate_dcache_range(
-				(unsigned long)(rxdesc_desc->buffer_addr),
-				(unsigned long)((rxdesc_desc->buffer_addr) +
-				PKTSIZE_ALIGN));
 
 		skb = (void *)rxdesc_desc->buffer_addr;
 
@@ -567,14 +547,6 @@ static int ipq807x_eth_snd(struct eth_device *dev, void *packet, int length)
 	txdesc->word1 |= ((length & IPQ807X_EDMA_TXDESC_DATA_LENGTH_MASK)
 			<< IPQ807X_EDMA_TXDESC_DATA_LENGTH_SHIFT);
 
-	flush_dcache_range((unsigned long)txdesc,
-			(unsigned long)txdesc +
-			sizeof(struct ipq807x_edma_txdesc_desc));
-
-	flush_dcache_range((unsigned long)(txdesc->buffer_addr),
-			(unsigned long)(txdesc->buffer_addr) +
-			PKTSIZE_ALIGN);
-
 	/*
 	 * Update producer index
 	 */
@@ -610,11 +582,6 @@ static int ipq807x_eth_recv(struct eth_device *dev)
 	for (i = 0; i < ehw->rxdesc_rings; i++) {
 		rxdesc_ring = &ehw->rxdesc_ring[i];
 
-		invalidate_dcache_range((unsigned long)(&rxdesc_ring->desc[0]),
-				(unsigned long)(&rxdesc_ring->desc[0] +
-				(IPQ807X_EDMA_RXDESC_RING_SIZE  *
-				sizeof(struct ipq807x_edma_rxdesc_desc))));
-
 		reg_data = ipq807x_edma_reg_read(
 				IPQ807X_EDMA_REG_RXDESC_INT_STAT(
 					rxdesc_ring->id));
@@ -645,8 +612,10 @@ static int ipq807x_edma_setup_ring_resources(struct ipq807x_edma_hw *ehw)
 	struct ipq807x_edma_rxfill_ring *rxfill_ring;
 	struct ipq807x_edma_rxdesc_ring *rxdesc_ring;
 	struct ipq807x_edma_txdesc_desc *tx_desc;
+	struct ipq807x_edma_rxfill_desc *rxfill_desc;
 	int i, j, index;
 	void *tx_buf;
+	void *rx_buf;
 
 	/*
 	 * Allocate Rx fill ring descriptors
@@ -655,15 +624,31 @@ static int ipq807x_edma_setup_ring_resources(struct ipq807x_edma_hw *ehw)
 		rxfill_ring = &ehw->rxfill_ring[i];
 		rxfill_ring->count = IPQ807X_EDMA_RXFILL_RING_SIZE;
 		rxfill_ring->id = ehw->rxfill_ring_start + i;
-		rxfill_ring->desc = ipq807x_alloc_memalign(
+		rxfill_ring->desc = (void *)noncached_alloc(
 				sizeof(struct ipq807x_edma_rxfill_desc) *
-				rxfill_ring->count);
+				rxfill_ring->count,
+				CONFIG_SYS_CACHELINE_SIZE);
 
 		if (rxfill_ring->desc == NULL) {
 			pr_info("%s: rxfill_ring->desc alloc error\n", __func__);
-			goto rxfill_ring_fail;
+			return -ENOMEM;
 		}
 		rxfill_ring->dma = virt_to_phys(rxfill_ring->desc);
+		rx_buf = (void *)noncached_alloc(PKTSIZE_ALIGN *
+					rxfill_ring->count,
+					CONFIG_SYS_CACHELINE_SIZE);
+
+		if (rx_buf == NULL) {
+			pr_info("%s: rxfill_ring->desc buffer alloc error\n",
+				 __func__);
+			return -ENOMEM;
+		}
+
+		for (j = 0; j < rxfill_ring->count; j++) {
+			rxfill_desc = IPQ807X_EDMA_RXFILL_DESC(rxfill_ring, j);
+			rxfill_desc->buffer_addr = virt_to_phys(rx_buf);
+			rx_buf += PKTSIZE_ALIGN;
+		}
 	}
 
 	/*
@@ -685,13 +670,14 @@ static int ipq807x_edma_setup_ring_resources(struct ipq807x_edma_hw *ehw)
 			&ehw->rxfill_ring[index - ehw->rxfill_ring_start];
 		rxdesc_ring->rxfill = ehw->rxfill_ring;
 
-		rxdesc_ring->desc = ipq807x_alloc_memalign(
+		rxdesc_ring->desc = (void *)noncached_alloc(
 				sizeof(struct ipq807x_edma_rxdesc_desc) *
-				rxdesc_ring->count);
+				rxdesc_ring->count,
+				CONFIG_SYS_CACHELINE_SIZE);
 
 		if (rxdesc_ring->desc == NULL) {
 			pr_info("%s: rxdesc_ring->desc alloc error\n", __func__);
-			goto rxdesc_ring_fail;
+			return -ENOMEM;
 		}
 		rxdesc_ring->dma = virt_to_phys(rxdesc_ring->desc);
 	}
@@ -703,13 +689,14 @@ static int ipq807x_edma_setup_ring_resources(struct ipq807x_edma_hw *ehw)
 		txcmpl_ring = &ehw->txcmpl_ring[i];
 		txcmpl_ring->count = IPQ807X_EDMA_TXCMPL_RING_SIZE;
 		txcmpl_ring->id = ehw->txcmpl_ring_start + i;
-		txcmpl_ring->desc = ipq807x_alloc_memalign(
+		txcmpl_ring->desc = (void *)noncached_alloc(
 				sizeof(struct ipq807x_edma_txcmpl_desc) *
-				txcmpl_ring->count);
+				txcmpl_ring->count,
+				CONFIG_SYS_CACHELINE_SIZE);
 
 		if (txcmpl_ring->desc == NULL) {
 			pr_info("%s: txcmpl_ring->desc alloc error\n", __func__);
-			goto txcmpl_ring_fail;
+			return -ENOMEM;
 		}
 		txcmpl_ring->dma = virt_to_phys(txcmpl_ring->desc);
 	}
@@ -722,23 +709,25 @@ static int ipq807x_edma_setup_ring_resources(struct ipq807x_edma_hw *ehw)
 		txdesc_ring = &ehw->txdesc_ring[i];
 		txdesc_ring->count = IPQ807X_EDMA_TXDESC_RING_SIZE;
 		txdesc_ring->id = ehw->txdesc_ring_start + i;
-		txdesc_ring->desc = ipq807x_alloc_memalign(
+		txdesc_ring->desc = (void *)noncached_alloc(
 					sizeof(struct ipq807x_edma_txdesc_desc) *
-					txdesc_ring->count);
+					txdesc_ring->count,
+					CONFIG_SYS_CACHELINE_SIZE);
 
 		if (txdesc_ring->desc == NULL) {
 			pr_info("%s: txdesc_ring->desc alloc error\n", __func__);
-			goto txdesc_ring_desc_fail;
+			return -ENOMEM;
 		}
 
 		txdesc_ring->dma = virt_to_phys(txdesc_ring->desc);
-		tx_buf = ipq807x_alloc_mem(IPQ807X_EDMA_TX_BUF_SIZE *
-						 txdesc_ring->count);
+		tx_buf = (void *)noncached_alloc(IPQ807X_EDMA_TX_BUF_SIZE *
+					txdesc_ring->count,
+					CONFIG_SYS_CACHELINE_SIZE);
 
 		if (tx_buf == NULL) {
 			pr_info("%s: txdesc_ring->desc buffer alloc error\n",
 				 __func__);
-			goto txdesc_ring_desc_fail;
+			return -ENOMEM;
 		}
 
 		for (j = 0; j < txdesc_ring->count; j++) {
@@ -752,36 +741,6 @@ static int ipq807x_edma_setup_ring_resources(struct ipq807x_edma_hw *ehw)
 
 	return 0;
 
-txdesc_ring_desc_fail:
-	for (i = 0; i < ehw->txdesc_rings; i++) {
-		txdesc_ring = &ehw->txdesc_ring[i];
-		if (txdesc_ring->desc) {
-			tx_desc = IPQ807X_EDMA_TXDESC_DESC(txdesc_ring, 0);
-			if (tx_desc->buffer_addr)
-				ipq807x_free_mem((void *)tx_desc->buffer_addr);
-			ipq807x_free_mem(txdesc_ring->desc);
-		}
-	}
-txcmpl_ring_fail:
-	for (i = 0; i < ehw->txcmpl_rings; i++) {
-		txcmpl_ring = &ehw->txcmpl_ring[i];
-		if (txcmpl_ring->desc) {
-			ipq807x_free_mem(txcmpl_ring->desc);
-		}
-	}
-rxdesc_ring_fail:
-	for (i = 0; i < ehw->rxdesc_rings; i++) {
-		rxdesc_ring = &ehw->rxdesc_ring[i];
-		if (rxdesc_ring->desc)
-			ipq807x_free_mem(rxdesc_ring->desc);
-	}
-rxfill_ring_fail:
-	for (i = 0; i < ehw->rxfill_rings; i++) {
-		rxfill_ring = &ehw->rxfill_ring[i];
-		if (rxfill_ring->desc)
-			ipq807x_free_mem(rxfill_ring->desc);
-	}
-	return -ENOMEM;
 }
 
 /*
@@ -899,6 +858,24 @@ static void ipq807x_edma_disable_intr(struct ipq807x_edma_hw *ehw)
 				IPQ807X_EDMA_MASK_INT_DISABLE);
 }
 
+static void set_sgmii_mode(int port_id, int sg_mode)
+{
+	if (port_id == 4)
+		sgmii_mode[0] = sg_mode;
+	else if (port_id == 5)
+		sgmii_mode[1] = sg_mode;
+}
+
+static int get_sgmii_mode(int port_id)
+{
+	if (port_id == 4)
+		return sgmii_mode[0];
+	else if (port_id == 5)
+		return sgmii_mode[1];
+	else
+		return -1;
+}
+
 static int ipq807x_eth_init(struct eth_device *eth_dev, bd_t *this)
 {
 	struct ipq807x_eth_dev *priv = eth_dev->priv;
@@ -915,6 +892,8 @@ static int ipq807x_eth_init(struct eth_device *eth_dev, bd_t *this)
 	int linkup=0;
 	int mac_speed = 0, speed_clock1 = 0, speed_clock2 = 0;
 	int phy_addr, port_8033 = -1, node, aquantia_port = -1;
+	int phy_node = -1;
+	int ret_sgmii_mode;
 
 	node = fdt_path_offset(gd->fdt_blob, "/ess-switch");
 	if (node >= 0)
@@ -922,6 +901,8 @@ static int ipq807x_eth_init(struct eth_device *eth_dev, bd_t *this)
 
 	if (node >= 0)
 		 aquantia_port = fdtdec_get_uint(gd->fdt_blob, node, "aquantia_port", -1);
+
+	phy_node = fdt_path_offset(gd->fdt_blob, "/ess-switch/port_phyinfo");
 	/*
 	 * Check PHY link, speed, Duplex on all phys.
 	 * we will proceed even if single link is up
@@ -941,13 +922,17 @@ static int ipq807x_eth_init(struct eth_device *eth_dev, bd_t *this)
 			return -1;
 		}
 
-		if (i == port_8033)
-			phy_addr = QCA8033_PHY_ADDR;
-		else if (i == aquantia_port)
-			phy_addr = AQU_PHY_ADDR;
-		else
-			phy_addr = i;
+		if (phy_node >= 0) {
+			phy_addr = phy_info[i]->phy_address;
+		} else {
 
+			if (i == port_8033)
+				phy_addr = QCA8033_PHY_ADDR;
+			else if (i == aquantia_port)
+				phy_addr = AQU_PHY_ADDR;
+			else
+				phy_addr = i;
+		}
 		status = phy_get_ops->phy_get_link_status(priv->mac_unit, phy_addr);
 		if (status == 0)
 			linkup++;
@@ -969,6 +954,10 @@ static int ipq807x_eth_init(struct eth_device *eth_dev, bd_t *this)
 				printf ("eth%d PHY%d %s Speed :%d %s duplex\n",
 						priv->mac_unit, i, lstatus[status], speed,
 						dp[duplex]);
+				if (phy_node >= 0) {
+					if (phy_info[i]->phy_type == QCA8081_PHY_TYPE)
+						set_sgmii_mode(i, 1);
+				}
 				break;
 			case FAL_SPEED_100:
 				mac_speed = 0x1;
@@ -985,6 +974,10 @@ static int ipq807x_eth_init(struct eth_device *eth_dev, bd_t *this)
 				printf ("eth%d PHY%d %s Speed :%d %s duplex\n",
 						priv->mac_unit, i, lstatus[status], speed,
 						dp[duplex]);
+				if (phy_node >= 0) {
+					if (phy_info[i]->phy_type == QCA8081_PHY_TYPE)
+						set_sgmii_mode(i, 1);
+				}
 				break;
 			case FAL_SPEED_1000:
 				mac_speed = 0x2;
@@ -998,6 +991,12 @@ static int ipq807x_eth_init(struct eth_device *eth_dev, bd_t *this)
 				printf ("eth%d PHY%d %s Speed :%d %s duplex\n",
 						priv->mac_unit, i, lstatus[status], speed,
 						dp[duplex]);
+				if (phy_node >= 0) {
+					if (phy_info[i]->phy_type == QCA8081_PHY_TYPE)
+						set_sgmii_mode(i, 1);
+					if ((phy_info[i]->phy_type == QCA8081_PHY_TYPE) && (i == 4))
+						speed_clock1 = 0x301;
+				}
 				break;
 			case FAL_SPEED_10000:
 				mac_speed = 0x3;
@@ -1008,8 +1007,19 @@ static int ipq807x_eth_init(struct eth_device *eth_dev, bd_t *this)
 						dp[duplex]);
 				break;
 			case FAL_SPEED_2500:
-				mac_speed = 0x4;
-				speed_clock1 = 0x107;
+				if (phy_node >= 0) {
+					if (phy_info[i]->phy_type == QCA8081_PHY_TYPE) {
+						mac_speed = 0x2;
+						if (i == 4)
+							speed_clock1 = 0x301;
+						else if (i == 5)
+							speed_clock1 = 0x101;
+						set_sgmii_mode(i, 0);
+					}
+				} else {
+					speed_clock1 = 0x107;
+					mac_speed = 0x4;
+				}
 				speed_clock2 = 0x0;
 				printf ("eth%d PHY%d %s Speed :%d %s duplex\n",
 						priv->mac_unit, i, lstatus[status], speed,
@@ -1026,6 +1036,26 @@ static int ipq807x_eth_init(struct eth_device *eth_dev, bd_t *this)
 			default:
 				printf("Unknown speed\n");
 				break;
+		}
+
+		if (phy_node >= 0) {
+			if (phy_info[i]->phy_type == QCA8081_PHY_TYPE) {
+				ret_sgmii_mode = get_sgmii_mode(i);
+				if (ret_sgmii_mode == 1) {
+					ppe_port_bridge_txmac_set(i + 1, 1);
+					if (i == 4)
+						ppe_uniphy_mode_set(0x1, PORT_WRAPPER_SGMII0_RGMII4);
+					else if (i == 5)
+						ppe_uniphy_mode_set(0x2, PORT_WRAPPER_SGMII0_RGMII4);
+
+				} else if (ret_sgmii_mode == 0) {
+					ppe_port_bridge_txmac_set(i + 1, 1);
+					if (i == 4)
+						ppe_uniphy_mode_set(0x1, PORT_WRAPPER_SGMII_PLUS);
+					else if (i == 5)
+						ppe_uniphy_mode_set(0x2, PORT_WRAPPER_SGMII_PLUS);
+				}
+			}
 		}
 		ipq807x_speed_clock_set(i, speed_clock1, speed_clock2);
 		if (i == aquantia_port)
@@ -1144,52 +1174,49 @@ static void ipq807x_edma_set_ring_values(struct ipq807x_edma_hw *edma_hw)
  */
 static int ipq807x_edma_alloc_rings(struct ipq807x_edma_hw *ehw)
 {
-	ehw->rxfill_ring = ipq807x_alloc_memalign((sizeof(
+	ehw->rxfill_ring = (void *)noncached_alloc((sizeof(
 				struct ipq807x_edma_rxfill_ring) *
-				ehw->rxfill_rings));
+				ehw->rxfill_rings),
+				CONFIG_SYS_CACHELINE_SIZE);
 
 	if (!ehw->rxfill_ring) {
 		pr_info("%s: rxfill_ring alloc error\n", __func__);
-		return -1;
+		return -ENOMEM;
 	}
 
-	ehw->rxdesc_ring = ipq807x_alloc_memalign((sizeof(
+	ehw->rxdesc_ring = (void *)noncached_alloc((sizeof(
 				struct ipq807x_edma_rxdesc_ring) *
-				ehw->rxdesc_rings));
+				ehw->rxdesc_rings),
+				CONFIG_SYS_CACHELINE_SIZE);
 
 	if (!ehw->rxdesc_ring) {
 		pr_info("%s: rxdesc_ring alloc error\n", __func__);
-		goto rxdesc_ring_alloc_fail;
+		return -ENOMEM;
 	}
 
-	ehw->txdesc_ring = ipq807x_alloc_memalign((sizeof(
+	ehw->txdesc_ring = (void *)noncached_alloc((sizeof(
 				struct ipq807x_edma_txdesc_ring) *
-				ehw->txdesc_rings));
+				ehw->txdesc_rings),
+				CONFIG_SYS_CACHELINE_SIZE);
 	if (!ehw->txdesc_ring) {
 		pr_info("%s: txdesc_ring alloc error\n", __func__);
-		goto txdesc_ring_alloc_fail;
+		return -ENOMEM;
 	}
 
-	ehw->txcmpl_ring = ipq807x_alloc_memalign((sizeof(
+	ehw->txcmpl_ring = (void *)noncached_alloc((sizeof(
 				struct ipq807x_edma_txcmpl_ring) *
-				ehw->txcmpl_rings));
+				ehw->txcmpl_rings),
+				CONFIG_SYS_CACHELINE_SIZE);
 
 	if (!ehw->txcmpl_ring) {
 		pr_info("%s: txcmpl_ring alloc error\n", __func__);
-		goto txcmpl_ring_alloc_fail;
+		return -ENOMEM;
 	}
 
 	pr_info("%s: successfull\n", __func__);
 
 	return 0;
 
-txcmpl_ring_alloc_fail:
-	ipq807x_free_mem(ehw->txdesc_ring);
-txdesc_ring_alloc_fail:
-	ipq807x_free_mem(ehw->rxdesc_ring);
-rxdesc_ring_alloc_fail:
-	ipq807x_free_mem(ehw->rxfill_ring);
-	return -ENOMEM;
 }
 
 
@@ -1638,6 +1665,27 @@ int ipq807x_edma_hw_init(struct ipq807x_edma_hw *ehw)
 	return 0;
 }
 
+void get_phy_address(int offset)
+{
+	int phy_type;
+	int phy_address;
+	int i;
+
+	for (i = 0; i < PHY_MAX; i++)
+		phy_info[i] = ipq807x_alloc_mem(sizeof(phy_info_t));
+	i = 0;
+	for (offset = fdt_first_subnode(gd->fdt_blob, offset); offset > 0;
+	     offset = fdt_next_subnode(gd->fdt_blob, offset)) {
+
+		phy_address = fdtdec_get_uint(gd->fdt_blob,
+							  offset, "phy_address", 0);
+		phy_type = fdtdec_get_uint(gd->fdt_blob,
+							  offset, "phy_type", 0);
+		phy_info[i]->phy_address = phy_address;
+		phy_info[i++]->phy_type = phy_type;
+	}
+}
+
 int ipq807x_edma_init(void *edma_board_cfg)
 {
 	struct eth_device *dev[IPQ807X_EDMA_DEV];
@@ -1650,7 +1698,9 @@ int ipq807x_edma_init(void *edma_board_cfg)
 	ipq807x_edma_board_cfg_t ledma_cfg, *edma_cfg;
 	static int sw_init_done = 0;
 	int port_8033 = -1, node, phy_addr, aquantia_port = -1;
-	int mode;
+	int mode, phy_node = -1;
+	int napa_port_len = 0 , len;
+	unsigned int phy_array[6] = {0};
 
 	node = fdt_path_offset(gd->fdt_blob, "/ess-switch");
 	if (node >= 0)
@@ -1658,6 +1708,10 @@ int ipq807x_edma_init(void *edma_board_cfg)
 
 	if (node >= 0)
 		aquantia_port = fdtdec_get_uint(gd->fdt_blob, node, "aquantia_port", -1);
+
+	phy_node = fdt_path_offset(gd->fdt_blob, "/ess-switch/port_phyinfo");
+	if (phy_node >= 0)
+		get_phy_address(phy_node);
 
 	mode = fdtdec_get_uint(gd->fdt_blob, node, "switch_mac_mode", -1);
 	if (mode < 0) {
@@ -1745,12 +1799,16 @@ int ipq807x_edma_init(void *edma_board_cfg)
 			goto init_failed;
 
 		for (phy_id =  0; phy_id < PHY_MAX; phy_id++) {
-			if (phy_id == port_8033)
-				phy_addr = QCA8033_PHY_ADDR;
-			else if (phy_id == aquantia_port)
-				phy_addr = AQU_PHY_ADDR;
-			else
-				phy_addr = phy_id;
+			if (phy_node >= 0) {
+				phy_addr = phy_info[phy_id]->phy_address;
+			} else {
+				if (phy_id == port_8033)
+					phy_addr = QCA8033_PHY_ADDR;
+				else if (phy_id == aquantia_port)
+					phy_addr = AQU_PHY_ADDR;
+				else
+					phy_addr = phy_id;
+			}
 
 			phy_chip_id1 = ipq_mdio_read(phy_addr, QCA_PHY_ID1, NULL);
 			phy_chip_id2 = ipq_mdio_read(phy_addr, QCA_PHY_ID2, NULL);
@@ -1780,6 +1838,9 @@ int ipq807x_edma_init(void *edma_board_cfg)
 					break;
 				case QCA8033_PHY:
 					ipq_qca8033_phy_init(&ipq807x_edma_dev[i]->ops[phy_id], phy_addr);
+					break;
+				case QCA8081_PHY:
+					ipq_qca8081_phy_init(&ipq807x_edma_dev[i]->ops[phy_id], phy_addr);
 					break;
 				case AQUANTIA_PHY_107:
 				case AQUANTIA_PHY_109:

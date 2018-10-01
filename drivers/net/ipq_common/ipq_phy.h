@@ -37,6 +37,7 @@
 #define QCA8075_PHY_V1_1_2P			0x004DD0B2
 #define QCA8033_PHY				0x004DD074
 #define QCA8033_PHY_ADDR			0x6
+#define QCA8081_PHY				0x004DD100
 #define AQUANTIA_PHY_107			0x03a1b4e2
 #define AQUANTIA_PHY_109			0x03a1b502
 #define AQUANTIA_PHY_111			0x03a1b610
@@ -90,8 +91,18 @@ enum port_wrapper_cfg {
 	PORT_WRAPPER_SGMII1_RGMII4,
 	PORT_WRAPPER_SGMII4_RGMII4,
 	PORT_WRAPPER_QSGMII,
+	PORT_WRAPPER_SGMII_PLUS,
 };
 
+enum phy_mode {
+	MALIBU_PHY_TYPE = 1,
+	QCA8081_PHY_TYPE = 2,
+};
+
+typedef struct {
+	u32 phy_address;
+	u32 phy_type;
+}phy_info_t;
 
 struct phy_ops {
 	u8 (*phy_get_link_status) (u32 dev_id, u32 phy_id);
