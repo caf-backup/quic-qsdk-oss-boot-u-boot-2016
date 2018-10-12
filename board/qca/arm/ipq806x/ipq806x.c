@@ -28,7 +28,7 @@
 #include <linux/usb/ipq_usb30.h>
 #include <linux/usb/dwc3.h>
 #include "ipq806x.h"
-#include "qca_common.h"
+#include <asm/arch-qca-common/qca_common.h>
 #include <asm/arch-qca-common/scm.h>
 #include <asm/arch-qca-common/iomap.h>
 #include <asm/io.h>
@@ -185,6 +185,29 @@ void reset_cpu(unsigned long a)
 	writel(1, APCS_WDT0_CPU0_WDOG_EXPIRED_ENABLE);
 
 	while(1);
+}
+
+void ipq_uboot_fdt_fixup(void)
+{
+	int ret, len;
+	const char *config = "config@ap148_1xx";
+	len = fdt_totalsize(gd->fdt_blob) + strlen(config) + 1;
+
+	if (gd->bd->bi_arch_number == MACH_TYPE_IPQ806X_AP148_1XX)
+	{
+		/*
+		 * Open in place with a new length.
+		 */
+		ret = fdt_open_into(gd->fdt_blob, gd->fdt_blob, len);
+		if (ret)
+			 debug("uboot-fdt-fixup: Cannot expand FDT: %s\n", fdt_strerror(ret));
+
+		ret = fdt_setprop(gd->fdt_blob, 0, "config_name",
+				config, (strlen(config)+1));
+		if (ret)
+			debug("uboot-fdt-fixup: unable to set config_name(%d)\n", ret);
+	}
+	return;
 }
 
 int board_mmc_init(bd_t *bis)
@@ -1082,4 +1105,14 @@ int bring_sec_core_up(unsigned int cpuid, unsigned int entry, unsigned int arg)
 		send_event();
 	}
 	return 0;
+}
+unsigned int get_dts_machid(unsigned int machid)
+{
+	switch (machid)
+	{
+		case MACH_TYPE_IPQ806X_AP148_1XX:
+			return MACH_TYPE_IPQ806X_AP148;
+		default:
+			return machid;
+	}
 }

@@ -71,6 +71,11 @@ void disable_audio_clks(void)
 {
 	return 0;
 }
+__weak
+void ipq_uboot_fdt_fixup(void)
+{
+	return 0;
+}
 
 int board_init(void)
 {
@@ -188,6 +193,7 @@ int board_init(void)
 
 	aquantia_phy_reset_init();
 	disable_audio_clks();
+	ipq_uboot_fdt_fixup();
 
 	return 0;
 }
@@ -219,6 +225,19 @@ int get_current_flash_type(uint32_t *flash_type)
 	return ret;
 }
 
+int get_soc_version(uint32_t *soc_ver_major, uint32_t *soc_ver_minor)
+{
+	int ret;
+	uint32_t soc_version;
+
+	ret = ipq_smem_get_socinfo_version((uint32_t *)&soc_version);
+	if (!ret) {
+		*soc_ver_major = SOCINFO_VERSION_MAJOR(soc_version);
+		*soc_ver_minor = SOCINFO_VERSION_MINOR(soc_version);
+	}
+
+	return ret;
+}
 void get_kernel_fs_part_details(void)
 {
 	int ret, i;
@@ -304,6 +323,7 @@ int board_late_init(void)
 {
 	unsigned int machid;
 	uint32_t flash_type;
+	uint32_t soc_ver_major, soc_ver_minor;
 	int ret;
 
 	qca_smem_flash_info_t *sfi = &qca_smem_flash_info;
@@ -325,12 +345,13 @@ int board_late_init(void)
 	if (!ret)
 		setenv_ulong("flash_type", (unsigned long)flash_type);
 
-#ifdef CONFIG_FLASH_PROTECT
-	if ((sfi->flash_type == SMEM_BOOT_MMC_FLASH) ||
-		((sfi->flash_type == SMEM_BOOT_SPI_FLASH) &&
-		(sfi->rootfs.offset == 0xBAD0FF5E))) {
-			board_flash_protect();
+	ret = get_soc_version(&soc_ver_major, &soc_ver_minor);
+	if (!ret) {
+		setenv_ulong("soc_version_major", (unsigned long)soc_ver_major);
+		setenv_ulong("soc_version_minor", (unsigned long)soc_ver_minor);
 	}
+#ifdef CONFIG_FLASH_PROTECT
+	board_flash_protect();
 #endif
 	set_ethmac_addr();
 

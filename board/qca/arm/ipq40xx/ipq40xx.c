@@ -31,7 +31,7 @@
 #include <asm/arch-ipq40xx/ess/ipq40xx_edma.h>
 #include <phy.h>
 #include "ipq40xx_edma_eth.h"
-#include "qca_common.h"
+#include <asm/arch-qca-common/qca_common.h>
 #include "ipq_phy.h"
 #include <sdhci.h>
 
@@ -442,6 +442,17 @@ void fdt_fixup_sd_ldo_gpios_toggle(void *blob)
 {
 	int noff;
 	int ret;
+
+	if (mmc_host.mmc != NULL) {
+		if (mmc_host.mmc->has_init == 0)
+			return;
+		else {
+			if(IS_SD(mmc_host.mmc))
+				return;
+		}
+	}
+	else
+		return;
 
 	noff = fdt_path_offset(blob, "/soc/sdhci");
 	if (noff < 0) {

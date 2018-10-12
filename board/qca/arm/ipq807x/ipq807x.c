@@ -1049,6 +1049,160 @@ void fdt_fixup_auto_restart(void *blob)
 	return;
 }
 
+#define TCSR_CPR	0x0193d008 /* TCSR_TZ_WONCE_2 */
+#define BM(lsb, msb)            ((BIT(msb) - BIT(lsb)) + BIT(msb))
+
+void fdt_fixup_cpr(void *blob)
+{
+	uint32_t soc_version, soc_version_major;
+	int node, subnode, phandle;
+	int i, ret;
+	uint64_t opp_hz[] = {1017600000, 1382400000, 1651200000,
+			     1843200000, 1920000000, 2208000000};
+	uint32_t opp_microvolt[] = {840000, 904000, 944000,
+				    984000, 992000, 1064000};
+
+	char *compatible[] = {"qcom,cpr4-ipq807x-apss-regulator",
+			      "qcom,cpr3-ipq807x-npu-regulator",
+			      "qcom,ipq807x-apm"};
+
+	uint32_t tcsr_cpr = readl(TCSR_CPR);
+
+	tcsr_cpr = (tcsr_cpr >> 8) & BM(0, 1);
+
+	if (tcsr_cpr != 1)
+		return;
+
+	node = fdt_path_offset(blob,
+				"/soc/qcom,spmi@200f000/pmic@1/regulators/s3");
+	if (node < 0)
+		return;
+
+	phandle = fdt_get_phandle(blob, node);
+	if (phandle <= 0)
+		return;
+
+	/* Set cpu-supply for all 4 cores */
+	node = fdt_path_offset(blob, "/cpus");
+	if (node < 0)
+		return;
+
+	subnode = fdt_first_subnode(blob, node);
+	if (subnode < 0)
+		return;
+
+	ret = fdt_setprop_cell(blob, subnode, "cpu0-supply", phandle);
+	if (ret)
+		return;
+
+	for (i = 1; i <= 3; i++) {
+		subnode = fdt_next_subnode(blob, subnode);
+		if (subnode < 0)
+			return;
+
+		ret = fdt_setprop_cell(blob, subnode, "cpu-supply", phandle);
+		if (ret)
+			return;
+	}
+
+	/* Set operating point */
+	node = fdt_path_offset(blob, "/cpus/opp_table0");
+	if (node < 0)
+		return;
+
+	subnode = fdt_first_subnode(blob, node);
+	if (subnode < 0)
+		return;
+
+	ret = fdt_setprop_cell(blob, subnode,
+			       "opp-microvolt", opp_microvolt[0]);
+	if (ret)
+		return;
+
+	ret = fdt_setprop_u64(blob, subnode, "opp-hz", opp_hz[0]);
+	if (ret)
+		return;
+
+	for (i = 1; i < ARRAY_SIZE(opp_microvolt); i++) {
+		subnode = fdt_next_subnode(blob, subnode);
+		if (subnode < 0)
+			return;
+
+		ret = fdt_setprop_cell(blob, subnode,
+				       "opp-microvolt", opp_microvolt[i]);
+		if (ret)
+			return;
+
+		ret = fdt_setprop_u64(blob, subnode, "opp-hz", opp_hz[i]);
+		if (ret)
+			return;
+	}
+
+	/* Delete opp06 subnode */
+	subnode = fdt_next_subnode(blob, subnode);
+	if (subnode < 0)
+		return;
+
+	ret = fdt_del_node(blob, subnode);
+	if (ret)
+		return;
+
+	node = fdt_path_offset(blob,
+				"/soc/qcom,spmi@200f000/pmic@1/regulators/s4");
+	if (node < 0)
+		return;
+
+	phandle = fdt_get_phandle(blob, node);
+	if (phandle <= 0)
+		return;
+
+	/* Delete npu-supply and mx-supply */
+	node = fdt_path_offset(blob, "/soc/nss@40000000");
+	if (node < 0)
+		return;
+
+	ret = fdt_delprop(blob, node, "npu-supply");
+	if (node < 0)
+		return;
+
+	ret = fdt_delprop(blob, node, "mx-supply");
+	if (node < 0)
+		return;
+
+	/* Disable cpr, apu */
+	for (i = 0; i < ARRAY_SIZE(compatible); i++) {
+		node = fdt_node_offset_by_compatible(blob, 0, compatible[i]);
+		if (node < 0)
+			return;
+		ret = fdt_setprop_string(blob, node, "status", "disabled");
+	}
+
+	return;
+}
+
+void ipq_fdt_fixup_pci_status(void *blob)
+{
+	int nodeoff, ret, node;
+	const char *pci_node[] = {"/soc/pci@20000000" , "/soc/pci@10000000",
+				"/soc/phy@84000", "/soc/phy@8e000"};
+	const char *stat = "disabled";
+
+	for (node = 0; node < ARRAY_SIZE(pci_node); node++) {
+		nodeoff = fdt_path_offset(blob, pci_node[node]);
+		if (nodeoff < 0) {
+			printf("fixup_pci: unable to find node '%s'\n",
+			       pci_node[node]);
+			return;
+		}
+		ret = fdt_setprop(blob, nodeoff, "status",
+				  stat,
+				  (strlen(stat) + 1));
+		if (ret)
+			printf("fixup_pci: 'status' cannot be set");
+
+	}
+}
+
 void set_flash_secondary_type(qca_smem_flash_info_t *smem)
 {
 	return;
