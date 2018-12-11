@@ -12,6 +12,7 @@
 */
 
 #include <common.h>
+#include <asm/global_data.h>
 #include <nand.h>
 #include <linux/mtd/nand.h>
 #include <spi_flash.h>
@@ -34,7 +35,11 @@
 
 #define MACRONIX_NORM_READ_MASK	(MACRONIX_WRAP | MACRONIX_PLANE | 0x0F)
 
+#define GIGADEVICE_NORM_READ_MASK 0x0F
+
 #define spi_print(...)  printf("spi_nand: " __VA_ARGS__)
+
+DECLARE_GLOBAL_DATA_PTR;
 
 struct nand_chip nand_chip[CONFIG_SYS_MAX_NAND_DEVICE];
 int verify_3bit_ecc(int status);
@@ -42,6 +47,7 @@ int verify_2bit_ecc(int status);
 int verify_dummy_ecc(int status);
 int verify_2bit_toshiba_ecc(int status);
 void gigadevice_norm_read_cmd(u8 *cmd, int column);
+void gigadevice_norm_read_cmd_12bit_addr(u8 *cmd, int column);
 void macronix_norm_read_cmd(u8 *cmd, int column);
 void winbond_norm_read_cmd(u8 *cmd, int column);
 void toshiba_norm_read_cmd(u8 *cmd, int column);
@@ -66,6 +72,22 @@ static struct spi_nand_flash_params spi_nand_flash_tbl[] = {
 		.verify_ecc = verify_3bit_ecc,
 		.die_select = NULL,
 		.name = "GD5F1GQ4XC",
+	},
+	{
+		.id = { 0xc8, 0xc1, 0xc8, 0xc1 },
+		.page_size = 2048,
+		.erase_size = 0x00020000,
+		.no_of_dies = 1,
+		.prev_die_id = INT_MAX,
+		.pages_per_die = 0x10000,
+		.pages_per_sector = 64,
+		.nr_sectors = 1024,
+		.oob_size = 128,
+		.protec_bpx = 0xC7,
+		.norm_read_cmd = gigadevice_norm_read_cmd_12bit_addr,
+		.verify_ecc = verify_3bit_ecc,
+		.die_select = NULL,
+		.name = "GD5F1GQ4R",
 	},
 	{
 		.id = { 0xc8, 0xb4, 0x68, 0xc8 },
@@ -174,6 +196,14 @@ void gigadevice_norm_read_cmd(u8 *cmd, int column)
 	cmd[1] = 0;
 	cmd[2] = (u8)(column >> 8);
 	cmd[3] = (u8)(column);
+}
+
+void gigadevice_norm_read_cmd_12bit_addr(u8 *cmd, int column)
+{
+	cmd[0] = IPQ40XX_SPINAND_CMD_NORM_READ;
+	cmd[1] = ((u8)(column >> 8) & GIGADEVICE_NORM_READ_MASK);
+	cmd[2] = (u8)(column);
+	cmd[3] = 0;
 }
 
 void macronix_norm_read_cmd(u8 *cmd, int column)
@@ -1006,6 +1036,9 @@ int spi_nand_init(void)
 	struct nand_chip *chip;
 	struct ipq40xx_spinand_info *info;
 	int ret;
+	int node;
+	u8 bus = CONFIG_SF_DEFAULT_BUS;
+	u8 cs = CONFIG_SF_SPI_NAND_CS;
 
 	info = (struct ipq40xx_spinand_info *)malloc(
 			sizeof(struct ipq40xx_spinand_info));
@@ -1015,10 +1048,15 @@ int spi_nand_init(void)
 	}
 	memset(info, '0', sizeof(struct ipq40xx_spinand_info));
 
-	flash = spi_flash_probe(CONFIG_SF_DEFAULT_BUS,
-				CONFIG_SF_SPI_NAND_CS,
-				CONFIG_SF_DEFAULT_SPEED,
-				CONFIG_SF_DEFAULT_MODE);
+	node = fdt_path_offset(gd->fdt_blob, "/spi/spi_nand");
+	if (node >= 0) {
+		bus = fdtdec_get_uint(gd->fdt_blob,
+			node, "bus-num", CONFIG_SF_DEFAULT_BUS);
+		cs = fdtdec_get_uint(gd->fdt_blob,
+			node, "cs", CONFIG_SF_SPI_NAND_CS);
+	}
+	flash = spi_flash_probe(bus, cs, CONFIG_SF_DEFAULT_SPEED,
+					CONFIG_SF_DEFAULT_MODE);
 	if (!flash) {
 	    	free(info);
 		spi_print("Id could not be mapped\n");
