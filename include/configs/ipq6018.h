@@ -25,6 +25,7 @@
 #define CONFIG_BOARD_LATE_INIT
 #define CONFIG_SYS_NO_FLASH
 #define CONFIG_SYS_VSNPRINTF
+#define CONFIG_IPQ_NO_RELOC
 
 #define CONFIG_IPQ6018_UART
 #define CONFIG_NR_DRAM_BANKS		1
@@ -147,6 +148,14 @@ extern loff_t board_env_size;
 #define CONFIG_USB_STORAGE
 #define CONFIG_SYS_USB_XHCI_MAX_ROOT_PORTS      2
 #define CONFIG_USB_MAX_CONTROLLER_COUNT         2
+#endif
+
+#define CONFIG_PCI_IPQ
+#define PCI_MAX_DEVICES	1
+#ifdef CONFIG_PCI_IPQ
+#define CONFIG_PCI
+#define CONFIG_CMD_PCI
+#define CONFIG_PCI_SCAN_SHOW
 #endif
 
 /*
@@ -285,5 +294,11 @@ extern loff_t board_env_size;
 /* Enabling this flag will report any L2 errors.
  * By default we are disabling it */
 /*#define CONFIG_IPQ_REPORT_L2ERR*/
+
+/*
+ * Other commands
+ */
+
+#define CONFIG_ARMV7_PSCI
 
 #endif /* _IPQ6018_H */

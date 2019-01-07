@@ -83,6 +83,8 @@ ARCH_NAME = ""
 SRC_DIR = ""
 MODE = ""
 image_type = "all"
+lk = "false"
+
 #
 # Python 2.6 and earlier did not have OrderedDict use the backport
 # from ordereddict package. If that is not available report error.
@@ -761,7 +763,10 @@ class Pack(object):
             if section_conf == "qsee":
                 section_conf = "tz"
             elif section_conf == "appsbl":
-                section_conf = "u-boot"
+                if lk == "true":
+                    section_conf = "lkboot"
+                else:
+                    section_conf = "u-boot"
             elif section_conf == "rootfs" and (self.flash_type == "nand" or self.flash_type == "norplusnand"):
                 section_conf = "ubi"
             elif section_conf == "wififw" and (self.flash_type == "nand" or self.flash_type == "norplusnand"):
@@ -913,6 +918,8 @@ class Pack(object):
 			    try:
 				if image_type == "all" or section.attrib['image_type'] == image_type:
                                 	filename = section.attrib['filename']
+                                        if lk == "true" and "u-boot" in filename:
+                                            filename = filename.replace("u-boot", "lkboot")
                                 	partition = section.attrib['label']
 				if filename == "":
 					continue
@@ -939,7 +946,7 @@ class Pack(object):
 		try:
 			if image_type == "all" or section.attrib['image_type'] == image_type:
 		                self.__gen_flash_script_cdt(entries, partition, flinfo, script)
-        		        continue
+                                continue
 		except KeyError, e:
 			continue
 
@@ -1056,7 +1063,11 @@ class Pack(object):
 	if section_conf == "qsee":
 	    section_conf = "tz"
 	elif section_conf == "appsbl":
-	    section_conf = "u-boot"
+            if lk == "true":
+                section_conf = "lkboot"
+            else:
+                print " Using u-boot..."
+	        section_conf = "u-boot"
 	elif section_conf == "rootfs" and (self.flash_type == "nand" or self.flash_type == "norplusnand"):
 	    section_conf = "ubi"
 	elif section_conf == "wififw" and (self.flash_type == "nand" or self.flash_type == "norplusnand"):
@@ -1174,6 +1185,8 @@ class Pack(object):
 			    try:
 			       if image_type == "all" or section.attrib['image_type'] == image_type:
 				   filename = section.attrib['filename']
+                                   if lk == "true" and "u-boot" in filename:
+                                       filename = filename.replace("u-boot", "lkboot")
 				   partition = section.attrib['label']
 			       if filename == "":
 				   continue
@@ -1287,7 +1300,7 @@ class Pack(object):
         its_fp.close()
 	
         try:
-            cmd = ["mkimage", "-f", self.its_fname, self.img_fname]
+            cmd = [SRC_DIR + "/mkimage", "-f", self.its_fname, self.img_fname]
             ret = subprocess.call(cmd)
             if ret != 0:
                 print ret
@@ -1317,7 +1330,14 @@ class Pack(object):
         script_fp = open(self.scr_fname, "a")
 
         if flinfo.type != "emmc":
-            flash_param = root.find(".//data[@type='NAND_PARAMETER']")
+            if root.find(".//data[@type='NAND_PARAMETER']/entry") != None:
+                if flinfo.type == "nand-4k":
+                    flash_param = root.find(".//data[@type='NAND_PARAMETER']/entry[@type='4k']")
+                else:
+                    flash_param = root.find(".//data[@type='NAND_PARAMETER']/entry[@type='2k']")
+            else:
+                flash_param = root.find(".//data[@type='NAND_PARAMETER']")
+
             pagesize = int(flash_param.find(".//page_size").text)
             pages_per_block = int(flash_param.find(".//pages_per_block").text)
             blocksize = pages_per_block * pagesize
@@ -1389,8 +1409,17 @@ class Pack(object):
         try:
             if ftype == "tiny-nor":
                 part_info = root.find(".//data[@type='" + "NOR_PARAMETER']")
+            elif ftype == "nand" or ftype == "nand-4k":
+                if root.find(".//data[@type='NAND_PARAMETER']/entry") != None:
+                    if ftype == "nand":
+                        part_info = root.find(".//data[@type='NAND_PARAMETER']/entry[@type='2k']")
+                    else:
+                        part_info = root.find(".//data[@type='NAND_PARAMETER']/entry[@type='4k']")
+                else:
+                    part_info = root.find(".//data[@type='" + "NAND_PARAMETER']")
             else:
                 part_info = root.find(".//data[@type='" + ftype.upper() + "_PARAMETER']")
+
             part_file = SRC_DIR + "/" + ARCH_NAME + "/flash_partition/" + ftype + "-partition.xml"
             part_xml = ET.parse(part_file)
             partition = part_xml.find(".//partitions/partition[2]")
@@ -1402,6 +1431,8 @@ class Pack(object):
 
             if ftype == "norplusnand" or ftype == "norplusemmc" or ftype == "tiny-nor":
                 ftype = "nor"
+            if ftype == "nand-4k":
+                ftype = "nand"
 
         except ValueError, e:
             error("invalid flash info in section '%s'" % board_section.find('machid').text, e)
@@ -1416,7 +1447,7 @@ class Pack(object):
     def __process_board(self, images, root):
 
         try:
-            if self.flash_type in [ "nand", "nor", "tiny-nor", "norplusnand" ]:
+            if self.flash_type in [ "nand", "nand-4k", "nor", "tiny-nor", "norplusnand" ]:
                 self.__process_board_flash(self.flash_type, images, root)
             elif self.flash_type == "emmc":
                 self.__process_board_flash_emmc(self.flash_type, images, root)
@@ -1469,6 +1500,7 @@ class ArgParser(object):
 	global SRC_DIR
 	global ARCH_NAME
 	global image_type
+        global lk
 
         """Start the parsing process, and populate members with parsed value.
 
@@ -1478,7 +1510,7 @@ class ArgParser(object):
 	cdir = os.path.abspath(os.path.dirname(""))
         if len(sys.argv) > 1:
             try:
-                opts, args = getopt(sys.argv[1:], "", ["arch=", "fltype=", "srcPath=", "inImage=", "outImage=", "image_type="])
+                opts, args = getopt(sys.argv[1:], "", ["arch=", "fltype=", "srcPath=", "inImage=", "outImage=", "image_type=", "lk"])
             except GetoptError, e:
 		raise UsageError(e.msg)
 
@@ -1500,6 +1532,10 @@ class ArgParser(object):
 
 		elif option == "--image_type":
 		    image_type = value
+
+                elif option =="--lk":
+                    lk = "true"
+
 
 #Verify Arguments passed by user
 
@@ -1554,6 +1590,8 @@ class ArgParser(object):
 	print
         print "  --outImage \tPath to the directory where single image will be generated"
         print
+        print "  --lk \t\tReplace u-boot with lkboot for appsbl"
+        print " \t\tThis Argument does not take any value"
         print "Pack Version: %s" % version
 
 def main():
@@ -1576,12 +1614,22 @@ def main():
     config = SRC_DIR + "/" + ARCH_NAME + "/config.xml"
     root = ET.parse(config)
 
+# Add nand-4k flash type, if nand flash type is specified
+    if "nand" in parser.flash_type.split(","):
+        if root.find(".//data[@type='NAND_PARAMETER']/entry") != None:
+            parser.flash_type = parser.flash_type + ",nand-4k"
+
 # Format the output image name from Arch, flash type and mode
     for flash_type in parser.flash_type.split(","):
-        if MODE == "64":
-            parser.out_fname = flash_type + "-" + ARCH_NAME + "_" + MODE + "-single.img"
+        if flash_type == "emmc" and lk == "true":
+            suffix = "-single-lkboot.img"
         else:
-	    parser.out_fname = flash_type + "-" + ARCH_NAME + "-single.img"
+            suffix = "-single.img"
+
+        if MODE == "64":
+            parser.out_fname = flash_type + "-" + ARCH_NAME + "_" + MODE + suffix
+        else:
+	    parser.out_fname = flash_type + "-" + ARCH_NAME + suffix
 
         parser.out_fname = os.path.join(parser.out_dname, parser.out_fname)
 
