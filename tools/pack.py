@@ -69,6 +69,8 @@ from getopt import getopt
 from getopt import GetoptError
 from collections import namedtuple
 from string import Template
+from shutil import copy
+from shutil import rmtree
 
 import os
 import sys
@@ -933,6 +935,11 @@ class Pack(object):
 			try:
 			      if image_type == "all" or section.attrib['image_type'] == image_type:
                                   filename = section.attrib['filename_' + MODE]
+                                  if lk == "true" and "uImage" in filename:
+                                      if MODE == "32":
+                                          filename = 'openwrt-' + ARCH_NAME + '-kernelboot.img'
+                                      if MODE == "64":
+                                          filename = 'openwrt-' + ARCH_NAME + '_' + MODE + '-kernelboot.img'
                                   partition = section.attrib['label']
 			      if filename == "":
 					continue
@@ -1203,6 +1210,11 @@ class Pack(object):
 			try:
 			      if image_type == "all" or section.attrib['image_type'] == image_type:
                                   filename = section.attrib['filename_' + MODE]
+                                  if lk == "true" and "uImage" in filename:
+                                      if MODE == "32":
+                                          filename = 'openwrt-' + ARCH_NAME + '-kernelboot.img'
+                                      if MODE == "64":
+                                          filename = 'openwrt-' + ARCH_NAME + '_' + MODE + '-kernelboot.img'
                                   partition = section.attrib['label']
 			      if filename == "":
                                         continue
@@ -1600,6 +1612,60 @@ class ArgParser(object):
         print " \t\tThis Argument does not take any value"
         print "Pack Version: %s" % version
 
+def gen_kernelboot_img(parser):
+    """Generate kernelboot.img needed by LK bootloader"""
+
+    SKALES_DIR = parser.images_dname
+    TMP_DIR = parser.out_dname + "tmp_dir"
+
+    try:
+
+        if os.path.exists(TMP_DIR):
+            rmtree(TMP_DIR)
+	os.makedirs(TMP_DIR)
+
+        if MODE == "64":
+            KERNEL_IMG_NAME = "openwrt-" + ARCH_NAME + "_" + MODE + "-kernelboot.img"
+        else:
+            KERNEL_IMG_NAME = "openwrt-" + ARCH_NAME + "-kernelboot.img"
+
+        src = parser.images_dname + "qcom-" + ARCH_NAME + "-hk01.dtb"
+        if not os.path.exists(src):
+            error("%s file not found" % src)
+        copy(src, TMP_DIR)
+
+        src = parser.images_dname + "Image"
+        if not os.path.exists(src):
+	    error("%s file not found" % src)
+        copy(src, TMP_DIR)
+
+        cmd = [SKALES_DIR + "dtbTool -o " + TMP_DIR + "/qcom-ipq807x-hk01-dt.img " + TMP_DIR]
+        ret = subprocess.call(cmd, shell=True)
+        if ret != 0:
+            print ret
+            error("Error executing dtbTools")
+
+        cmd = ["gzip -9 " + TMP_DIR + "/Image"]
+        ret = subprocess.call(cmd, shell=True)
+        if ret != 0:
+            print ret
+            error("Error executing gzip")
+
+        cmd = [SKALES_DIR + "mkbootimg",
+                "--kernel=" + TMP_DIR + "/Image.gz",
+                "--dt=" + TMP_DIR + "/qcom-ipq807x-hk01-dt.img",
+                "--cmdline=\'rootfsname=rootfs rootwait nosmp\'",
+                "--output=" + parser.out_dname + KERNEL_IMG_NAME,
+                "--base=0x41200000"]
+        ret = subprocess.call(cmd)
+        if ret != 0:
+            print ret
+            error("Error executing mkbootimg")
+
+        rmtree(TMP_DIR)
+    except OSError, e:
+        error("error generating kernelboot.img", e)
+
 def main():
     """Main script entry point.
 
@@ -1620,6 +1686,7 @@ def main():
     config = SRC_DIR + "/" + ARCH_NAME + "/config.xml"
     root = ET.parse(config)
 
+
 # Add nand-4k flash type, if nand flash type is specified
     if "nand" in parser.flash_type.split(","):
         if root.find(".//data[@type='NAND_PARAMETER']/entry") != None:
@@ -1635,6 +1702,8 @@ def main():
         else:
             if flash_type == "emmc" and lk == "true":
                 suffix = "-single-lkboot.img"
+                gen_kernelboot_img(parser)
+
             else:
                 suffix = "-single.img"
 
