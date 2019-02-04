@@ -1,5 +1,5 @@
 ######################################################################
-# Copyright (c) 2017, The Linux Foundation. All rights reserved.
+# Copyright (c) 2017, 2019, The Linux Foundation. All rights reserved.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License version 2 and
@@ -1558,7 +1558,7 @@ class ArgParser(object):
 #Verify Arguments passed by user
 
 # Verify arch type
-	    if ARCH_NAME not in ["ipq40xx", "ipq806x", "ipq807x", "ipq807x_64"]:
+	    if ARCH_NAME not in ["ipq40xx", "ipq806x", "ipq807x", "ipq807x_64", "ipq6018", "ipq6018_64"]:
 		raise UsageError("Invalid arch type '%s'" % arch)
 
 	    if ARCH_NAME == "ipq807x":
@@ -1566,6 +1566,12 @@ class ArgParser(object):
 	    elif ARCH_NAME == "ipq807x_64":
 		MODE = "64"
 		ARCH_NAME = "ipq807x"
+
+	    if ARCH_NAME == "ipq6018":
+		MODE = "32"
+	    elif ARCH_NAME == "ipq6018_64":
+		MODE = "64"
+		ARCH_NAME = "ipq6018"
 
 # Set flash type to default type (nand) if not given by user
 	    if self.flash_type == None:
@@ -1597,7 +1603,7 @@ class ArgParser(object):
 	print "python pack_hk.py [options] [Value] ..."
 	print
         print "options:"
-        print "  --arch \tARCH_TYPE [ipq40xx/ipq806x/ipq807x/ipq807x_64]"
+        print "  --arch \tARCH_TYPE [ipq40xx/ipq806x/ipq807x/ipq807x_64/ipq6018/ipq6018_64]"
 	print
 	print "  --fltype \tFlash Type [nor/tiny-nor/nand/emmc/norplusnand/norplusemmc]"
         print " \t\tMultiple flashtypes can be passed by a comma separated string"
@@ -1616,7 +1622,7 @@ def gen_kernelboot_img(parser):
     """Generate kernelboot.img needed by LK bootloader"""
 
     SKALES_DIR = parser.images_dname
-    TMP_DIR = parser.out_dname + "tmp_dir"
+    TMP_DIR = parser.out_dname + "/tmp_dir"
 
     try:
 
@@ -1629,17 +1635,17 @@ def gen_kernelboot_img(parser):
         else:
             KERNEL_IMG_NAME = "openwrt-" + ARCH_NAME + "-kernelboot.img"
 
-        src = parser.images_dname + "qcom-" + ARCH_NAME + "-hk01.dtb"
+        src = parser.images_dname + "/qcom-" + ARCH_NAME + "-hk01.dtb"
         if not os.path.exists(src):
             error("%s file not found" % src)
         copy(src, TMP_DIR)
 
-        src = parser.images_dname + "Image"
+        src = parser.images_dname + "/Image"
         if not os.path.exists(src):
 	    error("%s file not found" % src)
         copy(src, TMP_DIR)
 
-        cmd = [SKALES_DIR + "dtbTool -o " + TMP_DIR + "/qcom-ipq807x-hk01-dt.img " + TMP_DIR]
+        cmd = [SKALES_DIR + "/dtbTool -o " + TMP_DIR + "/qcom-ipq807x-hk01-dt.img " + TMP_DIR]
         ret = subprocess.call(cmd, shell=True)
         if ret != 0:
             print ret
@@ -1651,11 +1657,11 @@ def gen_kernelboot_img(parser):
             print ret
             error("Error executing gzip")
 
-        cmd = [SKALES_DIR + "mkbootimg",
+        cmd = [SKALES_DIR + "/mkbootimg",
                 "--kernel=" + TMP_DIR + "/Image.gz",
                 "--dt=" + TMP_DIR + "/qcom-ipq807x-hk01-dt.img",
                 "--cmdline=\'rootfsname=rootfs rootwait nosmp\'",
-                "--output=" + parser.out_dname + KERNEL_IMG_NAME,
+                "--output=" + parser.out_dname + "/" + KERNEL_IMG_NAME,
                 "--base=0x41200000"]
         ret = subprocess.call(cmd)
         if ret != 0:
