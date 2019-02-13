@@ -1317,6 +1317,24 @@ void fdt_low_memory_fixup(void *blob)
 	}
 }
 
+void fdt_fixup_set_qce_fixed_key(void *blob)
+{
+	int node_off, ret, node;
+	const char *qce_node = {"/soc/crypto@8e3a000"};
+
+	node_off = fdt_path_offset(blob, qce_node);
+	if (node_off < 0) {
+		printf("qce_crypto: unable to find node '%s'\n",
+				qce_node);
+		return;
+	}
+
+	ret = fdt_setprop_u32(blob, node_off, "qce,use_fixed_hw_key", 1);
+	if (ret)
+		printf("qce_crypto: 'qce,use_fixed_hw_key' property no set");
+
+}
+
 void set_flash_secondary_type(qca_smem_flash_info_t *smem)
 {
 	return;

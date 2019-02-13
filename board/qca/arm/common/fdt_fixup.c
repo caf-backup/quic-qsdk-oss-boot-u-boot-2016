@@ -495,6 +495,10 @@ __weak void fdt_fixup_cpr(void *blob)
 {
 	return;
 }
+__weak void fdt_fixup_set_qce_fixed_key(void *blob)
+{
+	return;
+}
 
 /*
  * For newer kernel that boot with device tree (3.14+), all of memory is
@@ -592,6 +596,10 @@ int ft_board_setup(void *blob, bd_t *bd)
 	fdt_fixup_sd_ldo_gpios_toggle(blob);
 	fdt_fixup_cpr(blob);
 	fdt_low_memory_fixup(blob);
+
+	s = getenv("qce_fixed_key");
+	if (s)
+		fdt_fixup_set_qce_fixed_key(blob);
 
 #ifdef CONFIG_QCA_MMC
 	board_mmc_deinit();
