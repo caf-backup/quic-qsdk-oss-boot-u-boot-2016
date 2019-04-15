@@ -85,6 +85,11 @@ struct dumpinfo_t dumpinfo_n[] = {
 	{ "MSGRAM.BIN", 0x00060000, 0x00006000, 1 },
 	{ "IMEM.BIN", 0x08600000, 0x00001000, 0 },
 	{ "NSSIMEM.BIN", 0x08600658, 0x00060000, 0, 1, 0x2000 },
+	{ "UNAME.BIN", 0, 0, 0, 0, 0, MINIMAL_DUMP },
+	{ "CPU_INFO.BIN", 0, 0, 0, 0, 0, MINIMAL_DUMP },
+	{ "DMESG.BIN", 0, 0, 0, 0, 0, MINIMAL_DUMP },
+	{ "PT.BIN", 0, 0, 0, 0, 0, MINIMAL_DUMP },
+	{ "WLAN_MOD.BIN", 0, 0, 0, 0, 0, MINIMAL_DUMP },
 };
 int dump_entries_n = ARRAY_SIZE(dumpinfo_n);
 
@@ -95,6 +100,11 @@ struct dumpinfo_t dumpinfo_s[] = {
 	{ "MSGRAM.BIN", 0x00060000, 0x00006000, 1 },
 	{ "IMEM.BIN", 0x08600000, 0x00001000, 0 },
 	{ "NSSIMEM.BIN", 0x08600658, 0x00060000, 0, 1, 0x2000 },
+	{ "UNAME.BIN", 0, 0, 0, 0, 0, MINIMAL_DUMP },
+	{ "CPU_INFO.BIN", 0, 0, 0, 0, 0, MINIMAL_DUMP },
+	{ "DMESG.BIN", 0, 0, 0, 0, 0, MINIMAL_DUMP },
+	{ "PT.BIN", 0, 0, 0, 0, 0, MINIMAL_DUMP },
+	{ "WLAN_MOD.BIN", 0, 0, 0, 0, 0, MINIMAL_DUMP },
 };
 int dump_entries_s = ARRAY_SIZE(dumpinfo_s);
 
@@ -374,6 +384,21 @@ void napa_phy_reset_init(void)
 	}
 }
 
+void sfp_reset_init(void)
+{
+	int sfp_gpio = -1, node;
+	unsigned int *sfp_gpio_base;
+
+		node = fdt_path_offset(gd->fdt_blob, "/ess-switch");
+		if (node >= 0)
+			sfp_gpio = fdtdec_get_uint(gd->fdt_blob, node, "sfp_gpio", -1);
+
+		if (sfp_gpio >=0) {
+			sfp_gpio_base = (unsigned int *)GPIO_CONFIG_ADDR(sfp_gpio);
+			writel(0x2C1, sfp_gpio_base);
+		}
+}
+
 void napa_phy_reset_init_done(void)
 {
 	int napa_gpio[2] = {0}, napa_gpio_cnt, i;
@@ -459,6 +484,7 @@ void eth_clock_enable(void)
 	writel(0, tlmm_base + 0x4);
 	aquantia_phy_reset_init();
 	napa_phy_reset_init();
+	sfp_reset_init();
 	mdelay(500);
 	writel(2, tlmm_base + 0x4);
 	aquantia_phy_reset_init_done();

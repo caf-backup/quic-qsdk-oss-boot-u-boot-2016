@@ -31,7 +31,6 @@ dtb-$(CONFIG_ARCH_IPQ807x) += ipq807x-hk01.dtb \
 	ipq807x-ac02.dtb \
 	ipq807x-ac03.dtb \
 	ipq807x-ac04.dtb \
-	ipq807x-oak01.dtb \
 	ipq807x-oak02.dtb \
 	ipq807x-oak03.dtb \
 	ipq807x-db-hk01.dtb \
@@ -62,8 +61,10 @@ dtb-$(CONFIG_ARCH_IPQ40xx) += ipq40xx-dk01-c1.dtb \
 		ipq40xx-dk01-s1.dtb \
 		ipq40xx-dk06-c1.dtb
 
-dtb-$(CONFIG_ARCH_IPQ6018) += ipq6018-cp01.dtb \
-		ipq6018-emulation.dtb
+dtb-$(CONFIG_ARCH_IPQ6018) += ipq6018-cp01-c1.dtb \
+			ipq6018-cp02-c1.dtb \
+			ipq6018-cp03-c1.dtb \
+			ipq6018-emulation.dtb \
 
 dtb-$(CONFIG_ARCH_ROCKCHIP) += \
 	rk3288-firefly.dtb \

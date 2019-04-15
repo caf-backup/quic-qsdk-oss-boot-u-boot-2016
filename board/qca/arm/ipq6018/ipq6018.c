@@ -26,6 +26,7 @@
 #include <sdhci.h>
 #include <usb.h>
 
+#define DLOAD_MAGIC_COOKIE	0x10
 DECLARE_GLOBAL_DATA_PTR;
 struct sdhci_host mmc_host;
 extern int ipq6018_edma_init(void *cfg);
@@ -35,6 +36,40 @@ const char *del_node[] = {"uboot",
 			  "sbl",
 			  NULL};
 const add_node_t add_fdt_node[] = {{}};
+
+struct dumpinfo_t dumpinfo_n[] = {
+	/* TZ stores the DDR physical address at which it stores the
+	 * APSS regs, UTCM copy dump. We will have the TZ IMEM
+	 * IMEM Addr at which the DDR physical address is stored as
+	 * the start
+	 *     --------------------
+         *     |  DDR phy (start) | ----> ------------------------
+         *     --------------------       | APSS regsave (8k)    |
+         *                                ------------------------
+         *                                |                      |
+	 *                                | 	 UTCM copy	 |
+         *                                |        (192k)        |
+	 *                                |                      |
+         *                                ------------------------
+	 */
+	{ "EBICS0.BIN", 0x40000000, 0x10000000, 0 },
+	{ "CODERAM.BIN", 0x00200000, 0x00028000, 0 },
+	{ "DATARAM.BIN", 0x00290000, 0x00014000, 0 },
+	{ "MSGRAM.BIN", 0x00060000, 0x00006000, 1 },
+	{ "IMEM.BIN", 0x08600000, 0x00001000, 0 },
+	{ "UTCM.BIN", 0x08600658, 0x00030000, 0, 1, 0x2000 },
+};
+int dump_entries_n = ARRAY_SIZE(dumpinfo_n);
+
+struct dumpinfo_t dumpinfo_s[] = {
+	{ "EBICS_S0.BIN", 0x40000000, 0x8D00000, 0 },
+	{ "EBICS_S1.BIN", CONFIG_TZ_END_ADDR, 0x10000000, 0 },
+	{ "DATARAM.BIN", 0x00290000, 0x00014000, 0 },
+	{ "MSGRAM.BIN", 0x00060000, 0x00006000, 1 },
+	{ "IMEM.BIN", 0x08600000, 0x00001000, 0 },
+	{ "UTCM.BIN", 0x08600658, 0x00030000, 0, 1, 0x2000 },
+};
+int dump_entries_s = ARRAY_SIZE(dumpinfo_s);
 
 void uart2_configure_mux(void)
 {
@@ -146,6 +181,7 @@ void emmc_clock_config()
 	writel(readl(GCC_SDCC1_APPS_CBCR)|0x1, GCC_SDCC1_APPS_CBCR);
 	/* Add 10us delay for CLK_OFF to get cleared */
 	udelay(10);
+	writel(readl(GCC_SDCC1_AHB_CBCR)|0x1, GCC_SDCC1_AHB_CBCR);
 	/* PLL0 - 192Mhz */
 	writel(0x20B, GCC_SDCC1_APPS_CFG_RCGR);
 	/* Delay for clock operation complete */
@@ -654,6 +690,17 @@ __weak int ipq_get_tz_version(char *version_name, int buf_size)
 {
 	return 1;
 }
+
+int apps_iscrashed(void)
+{
+	u32 *dmagic = (u32 *)CONFIG_IPQ6018_DMAGIC_ADDR;
+
+	if (*dmagic == DLOAD_MAGIC_COOKIE)
+		return 1;
+
+	return 0;
+}
+
 /**
  * Set the uuid in bootargs variable for mounting rootfilesystem
  */
