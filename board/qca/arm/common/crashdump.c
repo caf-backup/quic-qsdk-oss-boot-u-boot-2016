@@ -47,10 +47,12 @@
 #define CONFIG_SYS_MMC_CRASHDUMP_DEV	0
 #endif
 
+#define CONFIG_TZ_SIZE			0x400000
 DECLARE_GLOBAL_DATA_PTR;
 static qca_smem_flash_info_t *sfi = &qca_smem_flash_info;
 /* USB device id and part index used by usbdump */
 static int usb_dev_indx, usb_dev_part;
+int crashdump_tlv_count=0;
 
 enum {
     /*Basic DDR segments */
@@ -61,6 +63,7 @@ enum {
 	/* Module structures are in highmem zone*/
 	QCA_WDT_LOG_DUMP_TYPE_WLAN_MOD,
 	QCA_WDT_LOG_DUMP_TYPE_WLAN_MOD_INFO,
+	QCA_WDT_LOG_DUMP_TYPE_EMPTY,
 };
 /* This will be used for parsing the TLV data */
 struct qca_wdt_scm_tlv_msg {
@@ -176,7 +179,7 @@ static int dump_to_dst (int is_aligned_access, uint32_t memaddr, uint32_t size, 
 	}
 
 	if (usb_dump)
-		snprintf(runcmd, sizeof(runcmd), "fatwrite usb %d:%d 0x%x %s 0x%x",
+		snprintf(runcmd, sizeof(runcmd), "fatwrite usb %x:%x 0x%x %s 0x%x",
 					usb_dev_indx, usb_dev_part, memaddr, name, size);
 	else {
 		char *dumpdir;
@@ -260,6 +263,7 @@ static int qca_wdt_extract_crashdump_data(
 			crashdump_data->uname_length = cur_size;
 			ret_val = qca_wdt_scm_extract_tlv_data(scm_tlv_msg,
 					crashdump_data->uname, cur_size);
+			crashdump_tlv_count++;
 		}else if (!ret_val && cur_type == QCA_WDT_LOG_DUMP_TYPE_DMESG){
 			ret_val = qca_wdt_scm_extract_tlv_data(scm_tlv_msg,
 				(unsigned char *)&tlv_info,
@@ -268,12 +272,14 @@ static int qca_wdt_extract_crashdump_data(
 				crashdump_data->log_buf =(unsigned char *)(uintptr_t)tlv_info.start;
 				crashdump_data->log_buf_len = *(uint32_t *)(uintptr_t)tlv_info.size;
 		         }
+			crashdump_tlv_count++;
 		}else if (!ret_val && cur_type == QCA_WDT_LOG_DUMP_TYPE_LEVEL1_PT){
 			ret_val = qca_wdt_scm_extract_tlv_data(scm_tlv_msg,(unsigned char *)&tlv_info,cur_size);
 			if (!ret_val) {
 				crashdump_data->pt_start =(unsigned char *)(uintptr_t)tlv_info.start;
 				crashdump_data->pt_len = tlv_info.size;
 			}
+			crashdump_tlv_count++;
 		}
 	}
 	return ret_val;
@@ -312,7 +318,7 @@ static int dump_wlan_segments(struct dumpinfo_t *dumpinfo, int indx)
 	struct qca_wdt_scm_tlv_msg *scm_tlv_msg = &tlv_msg;
 	unsigned char cur_type = QCA_WDT_LOG_DUMP_TYPE_WLAN_MOD;
 	unsigned int cur_size;
-	int ret_val;
+	int ret_val,tlv_size;
 	struct st_tlv_info tlv_info;
 	uint32_t wlan_tlv_size;
 	char wlan_segment_name[32];
@@ -324,6 +330,20 @@ static int dump_wlan_segments(struct dumpinfo_t *dumpinfo, int indx)
 	do {
 		ret_val = qca_wdt_scm_extract_tlv_info(scm_tlv_msg,
 			&cur_type, &cur_size);
+
+		/* Each Dump segment is represented by a TLV tuple comprising of
+		three TLVs representing the type,size and physical addresses of
+		the data segments and corresponding PMD and PTE entries.
+		QCA_WDT_LOG_DUMP_TYPE_EMPTY type indicates that the TLV tuple has
+		been invalidated. When type QCA_WDT_LOG_DUMP_TYPE_EMPTY is encountered,
+		we skip over the TLV touple by moving the current massage buffer pointer
+		ahead by three TLVs */
+
+		if(cur_type == QCA_WDT_LOG_DUMP_TYPE_EMPTY) {
+			tlv_size = (cur_size + QCA_WDT_SCM_TLV_TYPE_LEN_SIZE);
+			scm_tlv_msg->cur_msg_buffer_pos += (3 * tlv_size);
+		}
+
 		if (!ret_val && ( cur_type == QCA_WDT_LOG_DUMP_TYPE_WLAN_MOD ||
 						cur_type == QCA_WDT_LOG_DUMP_TYPE_WLAN_MOD_INFO )) {
 			ret_val = qca_wdt_scm_extract_tlv_data(scm_tlv_msg,
@@ -342,11 +362,14 @@ static int dump_wlan_segments(struct dumpinfo_t *dumpinfo, int indx)
 
 			ret_val = dump_to_dst (dumpinfo[indx].is_aligned_access,memaddr,
 						wlan_tlv_size, wlan_segment_name);
+			crashdump_tlv_count++;
 			udelay(10000); /* give some delay for server */
 			if (ret_val == CMD_RET_FAILURE)
 				return CMD_RET_FAILURE;
 		}
 	}while (cur_type != QCA_WDT_LOG_DUMP_TYPE_INVALID);
+
+	printf("\nMinidump: Dumped %d TLVs\n",crashdump_tlv_count);
 	return CMD_RET_SUCCESS;
 };
 
@@ -380,9 +403,10 @@ static int do_dumpqca_data(unsigned int dump_level)
 #if defined(CONFIG_USB_STORAGE) && defined(CONFIG_FS_FAT)
 		static block_dev_desc_t *stor_dev;
 		disk_partition_t info;
-		int dev_indx, part_indx, max_dev_avail = 0, part = -1;
+		int dev_indx, max_dev_avail = 0;
+		int part_indx = 0, part = -1;
 		int fat_fs = 0;
-		char dev_str[3]; //dev_str = dev:part
+		char dev_str[5]; /* dev:part */
 
 		if(run_command("usb start", 0) != CMD_RET_SUCCESS) {
 			printf("USB enumeration failed\n");
@@ -402,12 +426,8 @@ static int do_dumpqca_data(unsigned int dump_level)
 			// get valid partition
 			for(part_indx = 1; part_indx <= MAX_SEARCH_PARTITIONS; part_indx++) {
 
-				snprintf(dev_str, sizeof(dev_str)+1, "%d:%d", dev_indx, part_indx);
+				snprintf(dev_str, sizeof(dev_str)+1, "%x:%x", dev_indx, part_indx);
 				part = get_device_and_partition("usb", dev_str, &stor_dev, &info, 1);
-				if (part < 0) {
-					printf("No valid partition available for device %d\n", dev_indx);
-					break;
-				}
 
 				if (fat_set_blk_dev(stor_dev, &info) == 0) {
 					fat_fs = 1;
@@ -416,6 +436,9 @@ static int do_dumpqca_data(unsigned int dump_level)
 					break;
 				}
 			}
+
+			if (part < 0)
+				printf("No valid partition available for device %d\n", dev_indx);
 		}
 
 		if (fat_fs == 1)
@@ -473,7 +496,7 @@ static int do_dumpqca_data(unsigned int dump_level)
 				     "EBICS_S1", strlen("EBICS_S1")))
 				dumpinfo[indx].size = gd->ram_size
 						      - dumpinfo[indx - 1].size
-						      - 0x400000;
+						      - CONFIG_TZ_SIZE;
 
 			if (usb_dump) {
 				ret = dump_to_dst (dumpinfo[indx].is_aligned_access, memaddr, dumpinfo[indx].size, dumpinfo[indx].name);

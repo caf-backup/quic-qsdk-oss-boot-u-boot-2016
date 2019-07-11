@@ -119,7 +119,7 @@
  * TFTP file can only be written in Linux HLOS region and WLAN AREA.
  */
 #define IPQ_TFTP_MIN_ADDR		(CONFIG_SYS_SDRAM_BASE + (16 << 20))
-#define CONFIG_TZ_END_ADDR		0x4AB00000
+#define CONFIG_TZ_END_ADDR		0x4AA00000
 #define CONFIG_SYS_SDRAM_END	((long long)CONFIG_SYS_SDRAM_BASE + gd->ram_size)
 
 #ifndef __ASSEMBLY__
@@ -305,6 +305,7 @@ extern loff_t board_env_size;
 #define CONFIG_IPQ6018_TZ_WONCE_4_ADDR		0x193d010
 
 #define CONFIG_IPQ6018_EDMA		1
+#define CONFIG_IPQ6018_QCA_AQUANTIA_PHY	1
 #define CONFIG_IPQ6018_BRIDGED_MODE	1
 #define CONFIG_NET_RETRY_COUNT		5
 #define CONFIG_SYS_RX_ETH_BUFFER	16
@@ -335,8 +336,8 @@ extern loff_t board_env_size;
 
 #define CONFIG_QCA_KERNEL_CRASHDUMP_ADDRESS	*((unsigned int *)0x08600658)
 #define CONFIG_CPU_CONTEXT_DUMP_SIZE		4096
-#define TLV_BUF_OFFSET 				4096
-#define CONFIG_TLV_DUMP_SIZE			2048
+#define TLV_BUF_OFFSET						240 * 1024
+#define CONFIG_TLV_DUMP_SIZE				16 * 1024
 
 /* L1 cache line size is 64 bytes, L2 cache line size is 128 bytes
  * Cache flush and invalidation based on L1 cache, so the cache line

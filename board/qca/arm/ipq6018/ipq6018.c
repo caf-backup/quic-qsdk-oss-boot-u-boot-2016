@@ -61,17 +61,27 @@ struct dumpinfo_t dumpinfo_n[] = {
 	{ "DATARAM.BIN", 0x00290000, 0x00014000, 0 },
 	{ "MSGRAM.BIN", 0x00060000, 0x00006000, 1 },
 	{ "IMEM.BIN", 0x08600000, 0x00001000, 0 },
-	{ "UTCM.BIN", 0x08600658, 0x00030000, 0, 1, 0x2000 },
+	{ "NSSUTCM.BIN", 0x08600658, 0x00030000, 0, 1, 0x2000 },
+	{ "UNAME.BIN", 0, 0, 0, 0, 0, MINIMAL_DUMP },
+	{ "CPU_INFO.BIN", 0, 0, 0, 0, 0, MINIMAL_DUMP },
+	{ "DMESG.BIN", 0, 0, 0, 0, 0, MINIMAL_DUMP },
+	{ "PT.BIN", 0, 0, 0, 0, 0, MINIMAL_DUMP },
+	{ "WLAN_MOD.BIN", 0, 0, 0, 0, 0, MINIMAL_DUMP },
 };
 int dump_entries_n = ARRAY_SIZE(dumpinfo_n);
 
 struct dumpinfo_t dumpinfo_s[] = {
-	{ "EBICS_S0.BIN", 0x40000000, 0x8D00000, 0 },
+	{ "EBICS_S0.BIN", 0x40000000, 0xA600000, 0 },
 	{ "EBICS_S1.BIN", CONFIG_TZ_END_ADDR, 0x10000000, 0 },
 	{ "DATARAM.BIN", 0x00290000, 0x00014000, 0 },
 	{ "MSGRAM.BIN", 0x00060000, 0x00006000, 1 },
 	{ "IMEM.BIN", 0x08600000, 0x00001000, 0 },
-	{ "UTCM.BIN", 0x08600658, 0x00030000, 0, 1, 0x2000 },
+	{ "NSSUTCM.BIN", 0x08600658, 0x00030000, 0, 1, 0x2000 },
+	{ "UNAME.BIN", 0, 0, 0, 0, 0, MINIMAL_DUMP },
+	{ "CPU_INFO.BIN", 0, 0, 0, 0, 0, MINIMAL_DUMP },
+	{ "DMESG.BIN", 0, 0, 0, 0, 0, MINIMAL_DUMP },
+	{ "PT.BIN", 0, 0, 0, 0, 0, MINIMAL_DUMP },
+	{ "WLAN_MOD.BIN", 0, 0, 0, 0, 0, MINIMAL_DUMP },
 };
 int dump_entries_s = ARRAY_SIZE(dumpinfo_s);
 u32 *tz_wonce = (u32 *)CONFIG_IPQ6018_TZ_WONCE_4_ADDR;
@@ -244,6 +254,14 @@ void mmc_iopad_config(struct sdhci_host *host)
 	/*set bit 15 & 16*/
 	val |= 0x18000;
 	writel(val, host->ioaddr + SDHCI_VENDOR_IOPAD);
+}
+
+void sdhci_bus_pwr_off(struct sdhci_host *host)
+{
+	u32 val;
+
+	val = sdhci_readb(host, SDHCI_HOST_CONTROL);
+	sdhci_writeb(host,(val & (~SDHCI_POWER_ON)), SDHCI_POWER_CONTROL);
 }
 
 void emmc_clock_disable(void)
@@ -1183,6 +1201,28 @@ void ipq_fdt_fixup_socinfo(void *blob)
 
 void fdt_fixup_auto_restart(void *blob)
 {
+	int nodeoff, ret;
+	const char *node = "/soc/q6v5_wcss@CD00000";
+	const char *paniconwcssfatal;
+
+	paniconwcssfatal = getenv("paniconwcssfatal");
+
+	if (!paniconwcssfatal)
+		return;
+
+	if (strncmp(paniconwcssfatal, "1", sizeof("1"))) {
+		printf("fixup_auto_restart: invalid variable 'paniconwcssfatal'");
+	} else {
+		nodeoff = fdt_path_offset(blob, node);
+		if (nodeoff < 0) {
+			printf("fixup_auto_restart: unable to find node '%s'\n", node);
+			return;
+		}
+		ret = fdt_delprop(blob, nodeoff, "qca,auto-restart");
+
+		if (ret)
+			printf("fixup_auto_restart: cannot delete property");
+	}
 	return;
 }
 
@@ -1212,4 +1252,38 @@ int bring_sec_core_up(unsigned int cpuid, unsigned int entry, unsigned int arg)
 
 	printf("Enabled CPU%d via psci successfully!\n", cpuid);
 	return 0;
+}
+
+unsigned int get_dts_machid(unsigned int machid)
+{
+	switch (machid)
+	{
+		case MACH_TYPE_IPQ6018_AP_CP01_C2:
+			return MACH_TYPE_IPQ6018_AP_CP01_C1;
+		default:
+			return machid;
+	}
+}
+
+void ipq_uboot_fdt_fixup(void)
+{
+	int ret, len;
+	const char *config = "config@cp01-c2";
+	len = fdt_totalsize(gd->fdt_blob) + strlen(config) + 1;
+
+	if (gd->bd->bi_arch_number == MACH_TYPE_IPQ6018_AP_CP01_C2)
+	{
+		/*
+		 * Open in place with a new length.
+		 */
+		ret = fdt_open_into(gd->fdt_blob, (void *)gd->fdt_blob, len);
+		if (ret)
+			 printf("uboot-fdt-fixup: Cannot expand FDT: %s\n", fdt_strerror(ret));
+
+		ret = fdt_setprop((void *)gd->fdt_blob, 0, "config_name",
+				config, (strlen(config)+1));
+		if (ret)
+			printf("uboot-fdt-fixup: unable to set config_name(%d)\n", ret);
+	}
+	return;
 }
