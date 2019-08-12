@@ -59,7 +59,6 @@ extern void ipq_qca8075_phy_map_ops(struct phy_ops **ops);
 extern int ipq_qca8075_phy_init(struct phy_ops **ops);
 extern void qca8075_phy_interface_set_mode(uint32_t phy_id,
 		uint32_t mode);
-extern int ipq_qca8033_phy_init(struct phy_ops **ops, u32 phy_id);
 extern int ipq_qca8081_phy_init(struct phy_ops **ops, u32 phy_id);
 extern int ipq_qca_aquantia_phy_init(struct phy_ops **ops, u32 phy_id);
 extern int ipq_board_fw_download(unsigned int phy_addr);
@@ -126,7 +125,7 @@ int ipq6018_edma_alloc_rx_buffer(struct ipq6018_edma_hw *ehw,
 	reg_data = ipq6018_edma_reg_read(IPQ6018_EDMA_REG_RXFILL_PROD_IDX(
 					rxfill_ring->id));
 
-	next = reg_data & IPQ6018_EDMA_RXFILL_PROD_IDX_MASK;
+	next = reg_data & IPQ6018_EDMA_RXFILL_PROD_IDX_MASK & (rxfill_ring->count - 1);
 
 	/*
 	 * Read RXFILL ring consumer index
@@ -564,9 +563,11 @@ static int ipq6018_eth_recv(struct eth_device *dev)
 	struct ipq6018_eth_dev *priv = dev->priv;
 	struct ipq6018_edma_common_info *c_info = priv->c_info;
 	struct ipq6018_edma_rxdesc_ring *rxdesc_ring;
+	struct ipq6018_edma_txcmpl_ring *txcmpl_ring;
+	struct ipq6018_edma_rxfill_ring *rxfill_ring;
 	struct ipq6018_edma_hw *ehw = &c_info->hw;
 	volatile u32 reg_data;
-	u32 rxdesc_intr_status = 0;
+	u32 rxdesc_intr_status = 0, txcmpl_intr_status = 0, rxfill_intr_status = 0;
 	int i;
 
 	/*
@@ -589,7 +590,56 @@ static int ipq6018_eth_recv(struct eth_device *dev)
 					IPQ6018_EDMA_MASK_INT_DISABLE);
 	}
 
-	ipq6018_edma_rx_complete(c_info);
+	/*
+	 * Read TxCmpl intr status
+	 */
+	for (i = 0; i < ehw->txcmpl_rings; i++) {
+		txcmpl_ring = &ehw->txcmpl_ring[i];
+
+		reg_data = ipq6018_edma_reg_read(
+				IPQ6018_EDMA_REG_TX_INT_STAT(
+					txcmpl_ring->id));
+		txcmpl_intr_status |= reg_data &
+				IPQ6018_EDMA_TXCMPL_RING_INT_STATUS_MASK;
+
+		/*
+		 * Disable TxCmpl intr
+		 */
+		ipq6018_edma_reg_write(IPQ6018_EDMA_REG_TX_INT_MASK(
+					txcmpl_ring->id),
+					IPQ6018_EDMA_MASK_INT_DISABLE);
+	}
+
+	/*
+	 * Read RxFill intr status
+	 */
+	for (i = 0; i < ehw->rxfill_rings; i++) {
+		rxfill_ring = &ehw->rxfill_ring[i];
+
+		reg_data = ipq6018_edma_reg_read(
+				IPQ6018_EDMA_REG_RXFILL_INT_STAT(
+					rxfill_ring->id));
+		rxfill_intr_status |= reg_data &
+				IPQ6018_EDMA_RXFILL_RING_INT_STATUS_MASK;
+
+		/*
+		 * Disable RxFill intr
+		 */
+		ipq6018_edma_reg_write(IPQ6018_EDMA_REG_RXFILL_INT_MASK(
+					rxfill_ring->id),
+					IPQ6018_EDMA_MASK_INT_DISABLE);
+	}
+
+	if ((rxdesc_intr_status != 0) || (txcmpl_intr_status != 0) ||
+	    (rxfill_intr_status != 0)) {
+		for (i = 0; i < ehw->rxdesc_rings; i++) {
+			rxdesc_ring = &ehw->rxdesc_ring[i];
+			ipq6018_edma_reg_write(IPQ6018_EDMA_REG_RXDESC_INT_MASK(
+						rxdesc_ring->id),
+						IPQ6018_EDMA_MASK_INT_DISABLE);
+		}
+		ipq6018_edma_rx_complete(c_info);
+	}
 
 	return 0;
 }
@@ -872,26 +922,23 @@ static int get_sgmii_mode(int port_id)
 static int ipq6018_eth_init(struct eth_device *eth_dev, bd_t *this)
 {
 	struct ipq6018_eth_dev *priv = eth_dev->priv;
-	struct ipq6018_edma_common_info *c_info = priv->c_info;
-	struct ipq6018_edma_hw *ehw = &c_info->hw;
 	int i;
-	uint32_t data;
 	u8 status;
 	struct phy_ops *phy_get_ops;
-	fal_port_speed_t speed;
+	static fal_port_speed_t old_speed[IPQ6018_PHY_MAX] = {[0 ... IPQ6018_PHY_MAX-1] = FAL_SPEED_BUTT};
+	static fal_port_speed_t curr_speed[IPQ6018_PHY_MAX];
 	fal_port_duplex_t duplex;
 	char *lstatus[] = {"up", "Down"};
 	char *dp[] = {"Half", "Full"};
 	int linkup=0;
 	int mac_speed = 0, speed_clock1 = 0, speed_clock2 = 0;
-	int phy_addr, port_8033 = -1, node, aquantia_port = -1;
+	int phy_addr, node, aquantia_port = -1;
 	int sfp_port = -1;
 	int phy_node = -1;
 	int ret_sgmii_mode;
+	int sfp_mode, sgmii_fiber = -1;
 
 	node = fdt_path_offset(gd->fdt_blob, "/ess-switch");
-	if (node >= 0)
-		port_8033 = fdtdec_get_uint(gd->fdt_blob, node, "8033_port", -1);
 
 	if (node >= 0)
 		aquantia_port = fdtdec_get_uint(gd->fdt_blob, node, "aquantia_port", -1);
@@ -909,8 +956,23 @@ static int ipq6018_eth_init(struct eth_device *eth_dev, bd_t *this)
 
 		if (i == sfp_port) {
 			status = phy_status_get_from_ppe(i);
-			speed = FAL_SPEED_10000;
 			duplex = FAL_FULL_DUPLEX;
+			sfp_mode = fdtdec_get_uint(gd->fdt_blob, node, "switch_mac_mode1", -1);
+			if (sfp_mode < 0) {
+				printf("\nError: switch_mac_mode1 not specified in dts");
+				return sfp_mode;
+			}
+			if (sfp_mode == PORT_WRAPPER_SGMII_FIBER) {
+				sgmii_fiber = 1;
+				curr_speed[i] = FAL_SPEED_1000;
+			} else if (sfp_mode == PORT_WRAPPER_10GBASE_R) {
+				sgmii_fiber = 0;
+				curr_speed[i] = FAL_SPEED_10000;
+			} else {
+
+				printf("\nError: wrong mode specified for SFP Port");
+				return sfp_mode;
+			}
 		} else {
 			if (!priv->ops[i]) {
 				printf ("Phy ops not mapped\n");
@@ -928,23 +990,34 @@ static int ipq6018_eth_init(struct eth_device *eth_dev, bd_t *this)
 			if (phy_node >= 0) {
 				phy_addr = phy_info[i]->phy_address;
 			} else {
-
-				if (i == port_8033)
-					phy_addr = QCA8033_PHY_ADDR;
-				else if (i == aquantia_port)
+				if (i == aquantia_port)
 					phy_addr = AQU_PHY_ADDR;
 				else
 					phy_addr = i;
 			}
 			status = phy_get_ops->phy_get_link_status(priv->mac_unit, phy_addr);
-			phy_get_ops->phy_get_speed(priv->mac_unit, phy_addr, &speed);
+			phy_get_ops->phy_get_speed(priv->mac_unit, phy_addr, &curr_speed[i]);
 			phy_get_ops->phy_get_duplex(priv->mac_unit, phy_addr, &duplex);
 		}
 
-		if (status == 0)
+		if (status == 0) {
 			linkup++;
+			if (old_speed[i] == curr_speed[i]) {
+				printf ("eth%d PHY%d %s Speed :%d %s duplex\n",
+					priv->mac_unit, i, lstatus[status], curr_speed[i],
+					dp[duplex]);
+				continue;
+			} else {
+				old_speed[i] = curr_speed[i];
+			}
+		} else {
+			printf ("eth%d PHY%d %s Speed :%d %s duplex\n",
+				priv->mac_unit, i, lstatus[status], curr_speed[i],
+				dp[duplex]);
+			continue;
+		}
 
-		switch (speed) {
+		switch (curr_speed[i]) {
 			case FAL_SPEED_10:
 				mac_speed = 0x0;
 				if (i == aquantia_port) {
@@ -955,7 +1028,7 @@ static int ipq6018_eth_init(struct eth_device *eth_dev, bd_t *this)
 				speed_clock1 = 0x109;
 				speed_clock2 = 0x9;
 				printf ("eth%d PHY%d %s Speed :%d %s duplex\n",
-						priv->mac_unit, i, lstatus[status], speed,
+						priv->mac_unit, i, lstatus[status], curr_speed[i],
 						dp[duplex]);
 				if (phy_node >= 0) {
 					if (phy_info[i]->phy_type == QCA8081_PHY_TYPE) {
@@ -975,7 +1048,7 @@ static int ipq6018_eth_init(struct eth_device *eth_dev, bd_t *this)
 					speed_clock2 = 0x0;
 				}
 				printf ("eth%d PHY%d %s Speed :%d %s duplex\n",
-						priv->mac_unit, i, lstatus[status], speed,
+						priv->mac_unit, i, lstatus[status], curr_speed[i],
 						dp[duplex]);
 				if (phy_node >= 0) {
 					if (phy_info[i]->phy_type == QCA8081_PHY_TYPE) {
@@ -989,11 +1062,13 @@ static int ipq6018_eth_init(struct eth_device *eth_dev, bd_t *this)
 				mac_speed = 0x2;
 				if (i == aquantia_port)
 					speed_clock1 = 0x304;
+				else if (i == sfp_port)
+					speed_clock1 = 0x301;
 				else
 					speed_clock1 = 0x101;
 				speed_clock2 = 0x0;
 				printf ("eth%d PHY%d %s Speed :%d %s duplex\n",
-						priv->mac_unit, i, lstatus[status], speed,
+						priv->mac_unit, i, lstatus[status], curr_speed[i],
 						dp[duplex]);
 				if (phy_node >= 0) {
 					if (phy_info[i]->phy_type == QCA8081_PHY_TYPE) {
@@ -1021,7 +1096,7 @@ static int ipq6018_eth_init(struct eth_device *eth_dev, bd_t *this)
 					}
 				}
 				printf ("eth%d PHY%d %s Speed :%d %s duplex\n",
-						priv->mac_unit, i, lstatus[status], speed,
+						priv->mac_unit, i, lstatus[status], curr_speed[i],
 						dp[duplex]);
 				break;
 			case FAL_SPEED_5000:
@@ -1029,7 +1104,7 @@ static int ipq6018_eth_init(struct eth_device *eth_dev, bd_t *this)
 				speed_clock1 = 0x303;
 				speed_clock2 = 0x0;
 				printf ("eth%d PHY%d %s Speed :%d %s duplex\n",
-						priv->mac_unit, i, lstatus[status], speed,
+						priv->mac_unit, i, lstatus[status], curr_speed[i],
 						dp[duplex]);
 				break;
 			case FAL_SPEED_10000:
@@ -1037,7 +1112,7 @@ static int ipq6018_eth_init(struct eth_device *eth_dev, bd_t *this)
 				speed_clock1 = 0x301;
 				speed_clock2 = 0x0;
 				printf ("eth%d PHY%d %s Speed :%d %s duplex\n",
-						priv->mac_unit, i, lstatus[status], speed,
+						priv->mac_unit, i, lstatus[status], curr_speed[i],
 						dp[duplex]);
 				break;
 			default:
@@ -1048,15 +1123,14 @@ static int ipq6018_eth_init(struct eth_device *eth_dev, bd_t *this)
 		if (phy_node >= 0) {
 			if (phy_info[i]->phy_type == QCA8081_PHY_TYPE) {
 				ret_sgmii_mode = get_sgmii_mode(i);
+				ppe_port_bridge_txmac_set(i + 1, 1);
 				if (ret_sgmii_mode == 1) {
-					ppe_port_bridge_txmac_set(i + 1, 1);
 					if (i == 4)
 						ppe_uniphy_mode_set(0x1, PORT_WRAPPER_SGMII0_RGMII4);
 					else if (i == 3)
 						ppe_uniphy_mode_set(0x0, PORT_WRAPPER_SGMII0_RGMII4);
 
 				} else if (ret_sgmii_mode == 0) {
-					ppe_port_bridge_txmac_set(i + 1, 1);
 					if (i == 4)
 						ppe_uniphy_mode_set(0x1, PORT_WRAPPER_SGMII_PLUS);
 					else if (i == 3)
@@ -1064,10 +1138,25 @@ static int ipq6018_eth_init(struct eth_device *eth_dev, bd_t *this)
 				}
 			}
 		}
+
+		if (i == sfp_port) {
+			if (sgmii_fiber) {
+				ppe_port_bridge_txmac_set(i + 1, 1);
+				ppe_uniphy_mode_set(0x1, PORT_WRAPPER_SGMII_FIBER);
+				ppe_port_mux_mac_type_set(i + 1, PORT_WRAPPER_SGMII_FIBER);
+			} else {
+				ppe_uniphy_mode_set(0x1, PORT_WRAPPER_10GBASE_R);
+				ppe_port_mux_mac_type_set(i + 1, PORT_WRAPPER_10GBASE_R);
+			}
+		}
+
 		ipq6018_speed_clock_set(i, speed_clock1, speed_clock2);
+
+		ipq6018_port_mac_clock_reset(i);
+
 		if (i == aquantia_port)
 			ipq6018_uxsgmii_speed_set(i, mac_speed, duplex, status);
-		else if (i == sfp_port)
+		else if (i == sfp_port && sgmii_fiber == 0)
 			ipq6018_10g_r_speed_set(i, status);
 		else
 			ipq6018_pqsgmii_speed_set(i, mac_speed, status);
@@ -1076,48 +1165,6 @@ static int ipq6018_eth_init(struct eth_device *eth_dev, bd_t *this)
 	if (linkup <= 0) {
 		/* No PHY link is alive */
 		return -1;
-	}
-
-	/*
-	 * Alloc Rx buffers
-	 */
-	ipq6018_edma_alloc_rx_buffer(ehw, ehw->rxfill_ring);
-
-	/*
-	 * Set DMA request priority
-	 */
-	ipq6018_edma_reg_write(IPQ6018_EDMA_REG_DMAR_CTRL,
-		(1 & IPQ6018_EDMA_DMAR_REQ_PRI_MASK) <<
-		IPQ6018_EDMA_DMAR_REQ_PRI_SHIFT);
-
-	/*
-	 * Enable EDMA
-	 */
-	ipq6018_edma_reg_write(IPQ6018_EDMA_REG_PORT_CTRL,
-				 IPQ6018_EDMA_PORT_CTRL_EN);
-
-	/*
-	 * Enable Rx rings
-	 */
-	for (i = ehw->rxdesc_ring_start; i < ehw->rxdesc_ring_end; i++) {
-		data = ipq6018_edma_reg_read(IPQ6018_EDMA_REG_RXDESC_CTRL(i));
-		data |= IPQ6018_EDMA_RXDESC_RX_EN;
-		ipq6018_edma_reg_write(IPQ6018_EDMA_REG_RXDESC_CTRL(i), data);
-	}
-
-	for (i = ehw->rxfill_ring_start; i < ehw->rxfill_ring_end; i++) {
-		data = ipq6018_edma_reg_read(IPQ6018_EDMA_REG_RXFILL_RING_EN(i));
-		data |= IPQ6018_EDMA_RXFILL_RING_EN;
-		ipq6018_edma_reg_write(IPQ6018_EDMA_REG_RXFILL_RING_EN(i), data);
-	}
-
-	/*
-	 * Enable Tx rings
-	 */
-	for (i = ehw->txdesc_ring_start; i < ehw->txdesc_ring_end; i++) {
-		data = ipq6018_edma_reg_read(IPQ6018_EDMA_REG_TXDESC_CTRL(i));
-		data |= IPQ6018_EDMA_TXDESC_TX_EN;
-		ipq6018_edma_reg_write(IPQ6018_EDMA_REG_TXDESC_CTRL(i), data);
 	}
 
 	pr_info("%s: done\n", __func__);
@@ -1132,17 +1179,6 @@ static int ipq6018_edma_wr_macaddr(struct eth_device *dev)
 
 static void ipq6018_eth_halt(struct eth_device *dev)
 {
-	struct ipq6018_eth_dev *priv = dev->priv;
-	struct ipq6018_edma_common_info *c_info = priv->c_info;
-	struct ipq6018_edma_hw *ehw = &c_info->hw;
-
-	ipq6018_edma_disable_intr(ehw);
-	ipq6018_edma_disable_rings(ehw);
-
-	/*
-	 * Disable EDMA
-	 */
-	ipq6018_edma_reg_write(IPQ6018_EDMA_REG_PORT_CTRL, IPQ6018_EDMA_DISABLE);
 	pr_info("%s: done\n", __func__);
 }
 
@@ -1257,66 +1293,6 @@ static int ipq6018_edma_init_rings(struct ipq6018_edma_hw *ehw)
 		return ret;
 
 	return 0;
-}
-
-/*
- * ipq6018_edma_configure_rx_threshold()
- *	Configure Rx threshold parameters
- */
-static void ipq6018_edma_configure_rx_threshold(void)
-{
-	uint32_t rxq_fc_thre, rxq_ctrl;
-
-	rxq_fc_thre = (IPQ6018_EDMA_RXFILL_FIFO_XOFF_THRE &
-			IPQ6018_EDMA_RXFILL_FIFO_XOFF_THRE_MASK)
-			<< IPQ6018_EDMA_RXFILL_FIFO_XOFF_THRE_SHIFT;
-
-	rxq_fc_thre |= (IPQ6018_EDMA_RXFILL_FIFO_XOFF_THRE &
-			IPQ6018_EDMA_DESC_FIFO_XOFF_THRE_MASK)
-			<< IPQ6018_EDMA_DESC_FIFO_XOFF_THRE_SHIFT;
-
-	ipq6018_edma_reg_write(IPQ6018_EDMA_REG_RXQ_FC_THRE, rxq_fc_thre);
-
-	rxq_ctrl = (IPQ6018_EDMA_RXFILL_PF_THRE &
-			 IPQ6018_EDMA_RXFILL_PF_THRE_MASK) <<
-			 IPQ6018_EDMA_RXFILL_PF_THRE_SHIFT;
-
-	rxq_ctrl |= (IPQ6018_EDMA_RXDESC_WB_THRE &
-			 IPQ6018_EDMA_RXDESC_WB_THRE_MASK) <<
-			 IPQ6018_EDMA_RXDESC_WB_THRE_SHIFT;
-
-	rxq_ctrl |= (IPQ6018_EDMA_RXDESC_WB_TIMER &
-			 IPQ6018_EDMA_RXDESC_WB_TIMER_MASK) <<
-			 IPQ6018_EDMA_RXDESC_WB_TIMER_SHIFT;
-
-	ipq6018_edma_reg_write(IPQ6018_EDMA_REG_RXQ_CTRL, rxq_ctrl);
-}
-
-/*
- * ipq6018_edma_configure_tx_threshold()
- *	Configure global Tx threshold parameters
- */
-static void ipq6018_edma_configure_tx_threshold(void)
-{
-	uint32_t txq_ctrl;
-
-	txq_ctrl = (IPQ6018_EDMA_TXDESC_PF_THRE &
-			 IPQ6018_EDMA_TXDESC_PF_THRE_MASK) <<
-			 IPQ6018_EDMA_TXDESC_PF_THRE_SHIFT;
-
-	txq_ctrl |= (IPQ6018_EDMA_TXCMPL_WB_THRE &
-			 IPQ6018_EDMA_TXCMPL_WB_THRE_MASK) <<
-			 IPQ6018_EDMA_TXCMPL_WB_THRE_SHIFT;
-
-	txq_ctrl |= (IPQ6018_EDMA_TXDESC_PKT_SRAM_THRE &
-			 IPQ6018_EDMA_TXDESC_PKT_SRAM_THRE_MASK) <<
-			 IPQ6018_EDMA_TXDESC_PKT_SRAM_THRE_SHIFT;
-
-	txq_ctrl |= (IPQ6018_EDMA_TXCMPL_WB_TIMER &
-			 IPQ6018_EDMA_TXCMPL_WB_TIMER_MASK) <<
-			 IPQ6018_EDMA_TXCMPL_WB_TIMER_SHIFT;
-
-	ipq6018_edma_reg_write(IPQ6018_EDMA_REG_TXQ_CTRL, txq_ctrl);
 }
 
 /*
@@ -1528,6 +1504,17 @@ static void ipq6018_edma_configure_rings(struct ipq6018_edma_hw *ehw)
 	pr_info("%s: successfull\n", __func__);
 }
 
+/*
+ * ipq6018_edma_hw_reset()
+ *	EDMA hw reset
+ */
+void ipq6018_edma_hw_reset(void)
+{
+	writel(GCC_EDMA_HW_RESET_ASSERT, GCC_NSS_PPE_RESET);
+	udelay(100);
+	writel(GCC_EDMA_HW_RESET_DEASSERT, GCC_NSS_PPE_RESET);
+	udelay(100);
+}
 
 /*
  * ipq6018_edma_hw_init()
@@ -1556,7 +1543,19 @@ int ipq6018_edma_hw_init(struct ipq6018_edma_hw *ehw)
 	ehw->misc_intr_mask = 0;
 	ehw->rx_payload_offset = IPQ6018_EDMA_RX_PREHDR_SIZE;
 
+	/*
+	 * Reset EDMA
+	 */
+	ipq6018_edma_hw_reset();
+
+	/*
+	 * Disable interrupts
+	 */
 	ipq6018_edma_disable_intr(ehw);
+
+	/*
+	 * Disable rings
+	 */
 	ipq6018_edma_disable_rings(ehw);
 
 	ret = ipq6018_edma_init_rings(ehw);
@@ -1579,12 +1578,6 @@ int ipq6018_edma_hw_init(struct ipq6018_edma_hw *ehw)
 	data |= (desc_index & 0xF);
 	ipq6018_edma_reg_write(reg, data);
 	pr_debug("Configure QID2RID reg:0x%x to 0x%x\n", reg, data);
-
-	/*
-	 * Configure Tx/Rx queue threshold parameters
-	 */
-	ipq6018_edma_configure_tx_threshold();
-	ipq6018_edma_configure_rx_threshold();
 
 	/*
 	 * Set RXDESC2FILL_MAP_xx reg.
@@ -1618,6 +1611,36 @@ int ipq6018_edma_hw_init(struct ipq6018_edma_hw *ehw)
 	reg = IPQ6018_EDMA_REG_RXDESC2FILL_MAP_1;
 	pr_debug("EDMA_REG_RXDESC2FILL_MAP_1: 0x%x\n",
 		 ipq6018_edma_reg_read(reg));
+
+	/*
+	 * Enable EDMA
+	 */
+	ipq6018_edma_reg_write(IPQ6018_EDMA_REG_PORT_CTRL,
+				 IPQ6018_EDMA_PORT_CTRL_EN);
+
+	/*
+	 * Enable Rx rings
+	 */
+	for (i = ehw->rxdesc_ring_start; i < ehw->rxdesc_ring_end; i++) {
+		data = ipq6018_edma_reg_read(IPQ6018_EDMA_REG_RXDESC_CTRL(i));
+		data |= IPQ6018_EDMA_RXDESC_RX_EN;
+		ipq6018_edma_reg_write(IPQ6018_EDMA_REG_RXDESC_CTRL(i), data);
+	}
+
+	for (i = ehw->rxfill_ring_start; i < ehw->rxfill_ring_end; i++) {
+		data = ipq6018_edma_reg_read(IPQ6018_EDMA_REG_RXFILL_RING_EN(i));
+		data |= IPQ6018_EDMA_RXFILL_RING_EN;
+		ipq6018_edma_reg_write(IPQ6018_EDMA_REG_RXFILL_RING_EN(i), data);
+	}
+
+	/*
+	 * Enable Tx rings
+	 */
+	for (i = ehw->txdesc_ring_start; i < ehw->txdesc_ring_end; i++) {
+		data = ipq6018_edma_reg_read(IPQ6018_EDMA_REG_TXDESC_CTRL(i));
+		data |= IPQ6018_EDMA_TXDESC_TX_EN;
+		ipq6018_edma_reg_write(IPQ6018_EDMA_REG_TXDESC_CTRL(i), data);
+	}
 
 	/*
 	 * Enable MISC interrupt
@@ -1661,12 +1684,10 @@ int ipq6018_edma_init(void *edma_board_cfg)
 	int ret = -1;
 	ipq6018_edma_board_cfg_t ledma_cfg, *edma_cfg;
 	static int sw_init_done = 0;
-	int port_8033 = -1, node, phy_addr, aquantia_port = -1;
+	int node, phy_addr, aquantia_port = -1;
 	int mode, phy_node = -1;
 
 	node = fdt_path_offset(gd->fdt_blob, "/ess-switch");
-	if (node >= 0)
-		port_8033 = fdtdec_get_uint(gd->fdt_blob, node, "8033_port", -1);
 
 	if (node >= 0)
 		aquantia_port = fdtdec_get_uint(gd->fdt_blob, node, "aquantia_port", -1);
@@ -1764,9 +1785,7 @@ int ipq6018_edma_init(void *edma_board_cfg)
 			if (phy_node >= 0) {
 				phy_addr = phy_info[phy_id]->phy_address;
 			} else {
-				if (phy_id == port_8033)
-					phy_addr = QCA8033_PHY_ADDR;
-				else if (phy_id == aquantia_port)
+				if (phy_id == aquantia_port)
 					phy_addr = AQU_PHY_ADDR;
 				else
 					phy_addr = phy_id;
@@ -1798,11 +1817,6 @@ int ipq6018_edma_init(void *edma_board_cfg)
 					else if ( mode == PORT_WRAPPER_QSGMII)
 						qca8075_phy_interface_set_mode(0x0, 0x4);
 					break;
-#ifdef CONFIG_QCA8033_PHY
-				case QCA8033_PHY:
-					ipq_qca8033_phy_init(&ipq6018_edma_dev[i]->ops[phy_id], phy_addr);
-					break;
-#endif
 #ifdef CONFIG_QCA8081_PHY
 				case QCA8081_PHY:
 				case QCA8081_1_1_PHY:

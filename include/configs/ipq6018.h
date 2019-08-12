@@ -85,7 +85,7 @@
 #define GPIO_IN_OUT_ADDR(x)		(TLMM_BASE + 0x4 + (x)*0x1000)
 
 #define CONFIG_SYS_SDRAM_BASE		0x40000000
-#define CONFIG_SYS_TEXT_BASE		0x4A100000
+#define CONFIG_SYS_TEXT_BASE		0x4A400000
 #define CONFIG_SYS_SDRAM_SIZE		0x10000000
 #define CONFIG_MAX_RAM_BANK_SIZE	CONFIG_SYS_SDRAM_SIZE
 #define CONFIG_SYS_LOAD_ADDR		(CONFIG_SYS_SDRAM_BASE + (64 << 20))
@@ -150,7 +150,6 @@ extern loff_t board_env_size;
 /*
  * USB Support
  */
-#define CONFIG_USB_XHCI_IPQ
 #ifdef CONFIG_USB_XHCI_IPQ
 #define CONFIG_USB_XHCI
 #define CONFIG_USB_XHCI_DWC3
@@ -160,7 +159,6 @@ extern loff_t board_env_size;
 #define CONFIG_USB_MAX_CONTROLLER_COUNT         2
 #endif
 
-#define CONFIG_PCI_IPQ
 #define PCI_MAX_DEVICES	1
 #ifdef CONFIG_PCI_IPQ
 #define CONFIG_PCI
@@ -310,7 +308,6 @@ extern loff_t board_env_size;
 #define CONFIG_IPQ6018_TZ_WONCE_4_ADDR		0x193d010
 
 #define CONFIG_IPQ6018_EDMA		1
-#define CONFIG_IPQ6018_QCA_AQUANTIA_PHY	1
 #define CONFIG_IPQ6018_BRIDGED_MODE	1
 #define CONFIG_NET_RETRY_COUNT		5
 #define CONFIG_SYS_RX_ETH_BUFFER	16
@@ -341,8 +338,8 @@ extern loff_t board_env_size;
 
 #define CONFIG_QCA_KERNEL_CRASHDUMP_ADDRESS	*((unsigned int *)0x08600658)
 #define CONFIG_CPU_CONTEXT_DUMP_SIZE		4096
-#define TLV_BUF_OFFSET						240 * 1024
-#define CONFIG_TLV_DUMP_SIZE				16 * 1024
+#define TLV_BUF_OFFSET						244 * 1024
+#define CONFIG_TLV_DUMP_SIZE				12 * 1024
 
 /* L1 cache line size is 64 bytes, L2 cache line size is 128 bytes
  * Cache flush and invalidation based on L1 cache, so the cache line
