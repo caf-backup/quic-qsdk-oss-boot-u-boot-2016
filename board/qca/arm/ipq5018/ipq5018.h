@@ -35,6 +35,15 @@
 #define GCC_SDCC1_AHB_CBCR		0x0184201C
 #define GCC_SDCC1_MISC			0x01842020
 
+/*
+ * GCC-QPIC Registers
+ */
+#define GCC_QPIC_IO_MACRO_CBCR          0x0185701C
+#define GCC_QPIC_CBCR_ADDR		0x01857020
+#define GCC_QPIC_AHB_CBCR_ADDR		0x01857024
+#define GCC_QPIC_SLEEP_CBCR		0x01857028
+#define QPIC_CBCR_VAL			0x80004FF1
+
 /* UART 1 */
 #define GCC_BLSP1_UART1_BCR               0x01802038
 #define GCC_BLSP1_UART1_APPS_CBCR         0x0180203C
@@ -77,6 +86,15 @@
 #define KERNEL_AUTH_CMD                   0x13
 #define SCM_CMD_SEC_AUTH		       0x1F
 
+#define ARM_PSCI_TZ_FN_BASE		0x84000000
+#define ARM_PSCI_TZ_FN(n)		(ARM_PSCI_TZ_FN_BASE + (n))
+
+#define ARM_PSCI_TZ_FN_CPU_OFF		ARM_PSCI_TZ_FN(2)
+#define ARM_PSCI_TZ_FN_CPU_ON		ARM_PSCI_TZ_FN(3)
+#define ARM_PSCI_TZ_FN_AFFINITY_INFO	ARM_PSCI_TZ_FN(4)
+
+unsigned int __invoke_psci_fn_smc(unsigned int, unsigned int,
+					 unsigned int, unsigned int);
 struct smem_ram_ptn {
 	char name[16];
 	unsigned long long start;
@@ -118,6 +136,7 @@ struct smem_ram_ptable {
 int smem_ram_ptable_init(struct smem_ram_ptable *smem_ram_ptable);
 void reset_crashdump(void);
 void reset_board(void);
+void qpic_clk_enbale(void);
 
 typedef enum {
 	SMEM_SPINLOCK_ARRAY = 7,

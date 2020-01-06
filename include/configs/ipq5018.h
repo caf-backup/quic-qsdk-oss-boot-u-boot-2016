@@ -19,6 +19,7 @@
 #endif
 
 #define CONFIG_IPQ5018
+#undef	CONFIG_QCA_DISABLE_SCM
 #define CONFIG_SPI_FLASH_CYPRESS
 #define CONFIG_SYS_NO_FLASH
 #define CONFIG_SYS_CACHELINE_SIZE		64
@@ -32,6 +33,11 @@
 #define CONFIG_SYS_BOOTM_LEN			0x4000000
 
 #define CONFIG_ENV_SIZE_MAX			(256 << 10) /* 256 KB */
+
+/*
+* PSCI Calls enable
+*/
+#define CONFIG_ARMV7_PSCI
 
 /*
  *Size of malloc() pool
@@ -129,6 +135,10 @@ extern loff_t board_env_size;
 #define CONFIG_CMD_NAND_YAFFS
 #define CONFIG_SYS_NAND_SELF_INIT
 #define CONFIG_SYS_NAND_ONFI_DETECTION
+
+/* QSPI Flash configs
+ */
+#define CONFIG_QPIC_SERIAL
 
 /*
 * SPI Flash Configs

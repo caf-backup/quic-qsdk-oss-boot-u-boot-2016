@@ -57,7 +57,20 @@ struct dumpinfo_t dumpinfo_n[] = {
 	 *                                |                      |
          *                                ------------------------
 	 */
+
+	/* Compressed EBICS dump follows descending order
+	 * to use in-memory compression for which destination
+	 * for compression will be address of EBICS2.BIN
+	 *
+	 * EBICS2 - (ddr size / 2) [to] end of ddr
+	 * EBICS1 - uboot end addr [to] (ddr size / 2)
+	 * EBICS0 - ddr start      [to] uboot start addr
+	 */
+
 	{ "EBICS0.BIN", 0x40000000, 0x10000000, 0 },
+	{ "EBICS2.BIN", 0x60000000, 0x20000000, 0, 0, 0, 0, 1 },
+	{ "EBICS1.BIN", CONFIG_UBOOT_END_ADDR, 0x10000000, 0, 0, 0, 0, 1 },
+	{ "EBICS0.BIN", 0x40000000, CONFIG_QCA_UBOOT_OFFSET, 0, 0, 0, 0, 1 },
 	{ "CODERAM.BIN", 0x00200000, 0x00028000, 0 },
 	{ "DATARAM.BIN", 0x00290000, 0x00014000, 0 },
 	{ "MSGRAM.BIN", 0x00060000, 0x00006000, 1 },
@@ -71,9 +84,18 @@ struct dumpinfo_t dumpinfo_n[] = {
 };
 int dump_entries_n = ARRAY_SIZE(dumpinfo_n);
 
+/* Compressed dumps:
+ * EBICS_S2 - (ddr start + 256M) [to] end of ddr
+ * EBICS_S1 - uboot end addr     [to] (ddr start + 256M)
+ * EBICS_S0 - ddr start          [to] uboot start addr
+ */
+
 struct dumpinfo_t dumpinfo_s[] = {
 	{ "EBICS_S0.BIN", 0x40000000, 0xA600000, 0 },
 	{ "EBICS_S1.BIN", CONFIG_TZ_END_ADDR, 0x10000000, 0 },
+	{ "EBICS_S2.BIN", 0x50000000, 0x10000000, 0, 0, 0, 0, 1 },
+	{ "EBICS_S1.BIN", CONFIG_UBOOT_END_ADDR, 0x5B00000, 0, 0, 0, 0, 1 },
+	{ "EBICS_S0.BIN", 0x40000000, CONFIG_QCA_UBOOT_OFFSET, 0, 0, 0, 0, 1 },
 	{ "DATARAM.BIN", 0x00290000, 0x00014000, 0 },
 	{ "MSGRAM.BIN", 0x00060000, 0x00006000, 1 },
 	{ "IMEM.BIN", 0x08600000, 0x00001000, 0 },
@@ -229,24 +251,23 @@ void reset_crashdump(void)
 #ifdef CONFIG_QCA_MMC
 void emmc_clock_config(void)
 {
-	/* Enable root clock generator */
-	writel(readl(GCC_SDCC1_APPS_CBCR)|0x1, GCC_SDCC1_APPS_CBCR);
-	/* Add 10us delay for CLK_OFF to get cleared */
+	int cfg;
+
+	/* Configure sdcc1_apps_clk_src */
+	cfg = (GCC_SDCC1_APPS_CFG_RCGR_SRC_SEL
+			| GCC_SDCC1_APPS_CFG_RCGR_SRC_DIV);
+	writel(cfg, GCC_SDCC1_APPS_CFG_RCGR);
+	writel(SDCC1_M_VAL, GCC_SDCC1_APPS_M);
+	writel(SDCC1_N_VAL, GCC_SDCC1_APPS_N);
+	writel(SDCC1_D_VAL, GCC_SDCC1_APPS_D);
+	writel(CMD_UPDATE, GCC_SDCC1_APPS_CMD_RCGR);
+	mdelay(100);
+	writel(ROOT_EN, GCC_SDCC1_APPS_CMD_RCGR);
+
+	/* Configure CBCRs */
+	writel(readl(GCC_SDCC1_APPS_CBCR) | CLK_ENABLE, GCC_SDCC1_APPS_CBCR);
 	udelay(10);
-	writel(readl(GCC_SDCC1_AHB_CBCR)|0x1, GCC_SDCC1_AHB_CBCR);
-	/* PLL0 - 192Mhz */
-	writel(0x20B, GCC_SDCC1_APPS_CFG_RCGR);
-	/* Delay for clock operation complete */
-	udelay(10);
-	writel(0x1, GCC_SDCC1_APPS_M);
-	writel(0xFC, GCC_SDCC1_APPS_N);
-	writel(0xFD, GCC_SDCC1_APPS_D);
-	/* Delay for clock operation complete */
-	udelay(10);
-	/* Update APPS_CMD_RCGR to reflect source selection */
-	writel(readl(GCC_SDCC1_APPS_CMD_RCGR)|0x1, GCC_SDCC1_APPS_CMD_RCGR);
-	/* Add 10us delay for clock update to complete */
-	udelay(10);
+	writel(readl(GCC_SDCC1_AHB_CBCR) | CLK_ENABLE, GCC_SDCC1_AHB_CBCR);
 }
 
 void mmc_iopad_config(struct sdhci_host *host)
@@ -325,6 +346,25 @@ int board_mmc_init(bd_t *bis)
 }
 #endif
 
+#ifdef CONFIG_QCA_SPI
+static void spi_clock_init(void)
+{
+	int cfg;
+
+	/* Configure qup1_spi_apps_clk_src */
+	cfg = (GCC_BLSP1_QUP1_SPI_APPS_CFG_RCGR_SRC_SEL |
+		GCC_BLSP1_QUP1_SPI_APPS_CFG_RCGR_SRC_DIV);
+	writel(cfg, GCC_BLSP1_QUP1_SPI_APPS_CFG_RCGR);
+
+	writel(CMD_UPDATE, GCC_BLSP1_QUP1_SPI_APPS_CMD_RCGR);
+	mdelay(100);
+	writel(ROOT_EN, GCC_BLSP1_QUP1_SPI_APPS_CMD_RCGR);
+
+	/* Configure CBCR */
+	writel(CLK_ENABLE, GCC_BLSP1_QUP1_SPI_APPS_CBCR);
+}
+#endif
+
 void board_nand_init(void)
 {
 #ifdef CONFIG_QCA_SPI
@@ -334,6 +374,7 @@ void board_nand_init(void)
 	qpic_nand_init();
 
 #ifdef CONFIG_QCA_SPI
+	spi_clock_init();
 	gpio_node = fdt_path_offset(gd->fdt_blob, "/spi/spi_gpio");
 	if (gpio_node >= 0) {
 		qca_gpio_init(gpio_node);
@@ -349,20 +390,41 @@ void board_nand_init(void)
 #ifdef CONFIG_PCI_IPQ
 static void pcie_v2_clock_init(void)
 {
-	/* Enable PCIE CLKS */
-	writel(0x2, GCC_PCIE0_AUX_CMD_RCGR);
-	writel(0x107, GCC_PCIE0_AXI_CFG_RCGR);
-	writel(0x1, GCC_PCIE0_AXI_CMD_RCGR);
+	int cfg;
+
+
+	/* Configure pcie0_aux_clk_src */
+	cfg = (GCC_PCIE0_AUX_CFG_RCGR_SRC_SEL | GCC_PCIE0_AUX_CFG_RCGR_SRC_DIV);
+	writel(cfg, GCC_PCIE0_AUX_CFG_RCGR);
+	writel(CMD_UPDATE, GCC_PCIE0_AUX_CMD_RCGR);
 	mdelay(100);
-	writel(0x2, GCC_PCIE0_AXI_CMD_RCGR);
-	writel(0x20000001, GCC_PCIE0_AHB_CBCR);
-	writel(0x4FF1, GCC_PCIE0_AXI_M_CBCR);
-	writel(0x20004FF1, GCC_PCIE0_AXI_S_CBCR);
-	writel(0x1, GCC_PCIE0_AUX_CBCR);
-	writel(0x80004FF1, GCC_PCIE0_PIPE_CBCR);
-	writel(0x1, GCC_PCIE0_AXI_S_BRIDGE_CBCR);
-	writel(0x10F, GCC_PCIE0_RCHNG_CFG_RCGR);
-	writel(0x3, GCC_PCIE0_RCHNG_CMD_RCGR);
+	writel(ROOT_EN, GCC_PCIE0_AUX_CMD_RCGR);
+
+	/* Configure pcie0_axi_clk_src */
+	cfg = (GCC_PCIE0_AXI_CFG_RCGR_SRC_SEL | GCC_PCIE0_AXI_CFG_RCGR_SRC_DIV);
+	writel(cfg, GCC_PCIE0_AXI_CFG_RCGR);
+	writel(CMD_UPDATE, GCC_PCIE0_AXI_CMD_RCGR);
+	mdelay(100);
+	writel(ROOT_EN, GCC_PCIE0_AXI_CMD_RCGR);
+
+	/* Configure CBCRs */
+	writel(CLK_ENABLE, GCC_SYS_NOC_PCIE0_AXI_CBCR);
+	writel(CLK_ENABLE, GCC_PCIE0_AHB_CBCR);
+	writel(CLK_ENABLE, GCC_PCIE0_AXI_M_CBCR);
+	writel(CLK_ENABLE, GCC_PCIE0_AXI_S_CBCR);
+	writel(CLK_ENABLE, GCC_PCIE0_AUX_CBCR);
+	writel(PIPE_CLK_ENABLE, GCC_PCIE0_PIPE_CBCR);
+	writel(CLK_ENABLE, GCC_PCIE0_AXI_S_BRIDGE_CBCR);
+
+	/* Configure pcie0_rchng_clk_src */
+	cfg = (GCC_PCIE0_RCHNG_CFG_RCGR_SRC_SEL
+			| GCC_PCIE0_RCHNG_CFG_RCGR_SRC_DIV);
+	writel(cfg, GCC_PCIE0_RCHNG_CFG_RCGR);
+	writel(CMD_UPDATE, GCC_PCIE0_RCHNG_CMD_RCGR);
+	mdelay(100);
+	writel(ROOT_EN, GCC_PCIE0_RCHNG_CMD_RCGR);
+
+
 }
 
 static void pcie_v2_clock_deinit(void)
@@ -371,7 +433,7 @@ static void pcie_v2_clock_deinit(void)
 	writel(0x0, GCC_PCIE0_AXI_CFG_RCGR);
 	writel(0x0, GCC_PCIE0_AXI_CMD_RCGR);
 	mdelay(100);
-	writel(0x0, GCC_SYS_NOC_PCIE0_AXI_CLK);
+	writel(0x0, GCC_SYS_NOC_PCIE0_AXI_CBCR);
 	writel(0x0, GCC_PCIE0_AHB_CBCR);
 	writel(0x0, GCC_PCIE0_AXI_M_CBCR);
 	writel(0x0, GCC_PCIE0_AXI_S_CBCR);
@@ -488,38 +550,80 @@ void board_usb_deinit(int id)
 
 static void usb_clock_init(int id)
 {
+	int cfg;
+
 	if (id == 0) {
-		writel(0x222004, GCC_USB0_GDSCR);
-		writel(0, GCC_SYS_NOC_USB0_AXI_CBCR);
-		writel(0, GCC_SNOC_BUS_TIMEOUT2_AHB_CBCR);
-		writel(0x10b, GCC_USB0_MASTER_CFG_RCGR);
-		writel(0x1, GCC_USB0_MASTER_CMD_RCGR);
-		writel(1, GCC_SYS_NOC_USB0_AXI_CBCR);
-		writel(0xcff1, GCC_USB0_MASTER_CBCR);
-		writel(1, GCC_SNOC_BUS_TIMEOUT2_AHB_CBCR);
-		writel(1, GCC_USB0_SLEEP_CBCR);
-		//gcc_usb0_mock_utmi_clk is set to 24 MHz
-		writel(0x1, GCC_USB0_MOCK_UTMI_CFG_RCGR);
-		writel(0x1, GCC_USB0_MOCK_UTMI_M);
-		writel(0xf7, GCC_USB0_MOCK_UTMI_N);
-		writel(0xf6, GCC_USB0_MOCK_UTMI_D);
-		writel(0x3, GCC_USB0_MOCK_UTMI_CMD_RCGR);
-		writel(1, GCC_USB0_MOCK_UTMI_CBCR);
-		writel(0x8001, GCC_USB0_PHY_CFG_AHB_CBCR);
-		writel(1, GCC_USB0_AUX_CBCR);
-		writel(1, GCC_USB0_PIPE_CBCR);
+		cfg = readl(GCC_USB0_GDSCR) | SW_OVERRIDE_ENABLE;
+		cfg &= ~(SW_COLLAPSE_ENABLE);
+		writel(cfg, GCC_USB0_GDSCR);
+
+		/* Configure usb0_master_clk_src */
+		cfg = (GCC_USB0_MASTER_CFG_RCGR_SRC_SEL |
+			GCC_USB0_MASTER_CFG_RCGR_SRC_DIV);
+		writel(cfg, GCC_USB0_MASTER_CFG_RCGR);
+		writel(CMD_UPDATE, GCC_USB0_MASTER_CMD_RCGR);
+		mdelay(100);
+		writel(ROOT_EN, GCC_USB0_MASTER_CMD_RCGR);
+
+		/* Configure usb0_mock_utmi_clk_src */
+		cfg = (GCC_USB_MOCK_UTMI_SRC_SEL |
+			GCC_USB_MOCK_UTMI_SRC_DIV);
+		writel(cfg, GCC_USB0_MOCK_UTMI_CFG_RCGR);
+		writel(UTMI_M, GCC_USB0_MOCK_UTMI_M);
+		writel(UTMI_N, GCC_USB0_MOCK_UTMI_N);
+		writel(UTMI_D, GCC_USB0_MOCK_UTMI_D);
+		writel(CMD_UPDATE, GCC_USB0_MOCK_UTMI_CMD_RCGR);
+		mdelay(100);
+		writel(ROOT_EN, GCC_USB0_MOCK_UTMI_CMD_RCGR);
+
+		/* Configure usb0_aux_clk_src */
+		cfg = (GCC_USB0_AUX_CFG_SRC_SEL |
+			GCC_USB0_AUX_CFG_SRC_DIV);
+		writel(cfg, GCC_USB0_AUX_CFG_RCGR);
+		writel(AUX_M, GCC_USB0_AUX_M);
+		writel(AUX_N, GCC_USB0_AUX_N);
+		writel(AUX_D, GCC_USB0_AUX_D);
+		writel(CMD_UPDATE, GCC_USB0_AUX_CMD_RCGR);
+		mdelay(100);
+		writel(ROOT_EN, GCC_USB0_AUX_CMD_RCGR);
+
+		/* Configure CBCRs */
+		writel(CLK_DISABLE, GCC_SYS_NOC_USB0_AXI_CBCR);
+		writel(CLK_DISABLE, GCC_SNOC_BUS_TIMEOUT2_AHB_CBCR);
+		writel(CLK_ENABLE, GCC_SYS_NOC_USB0_AXI_CBCR);
+		writel((readl(GCC_USB0_MASTER_CBCR) | CLK_ENABLE),
+						GCC_USB0_MASTER_CBCR);
+		writel(CLK_ENABLE, GCC_SNOC_BUS_TIMEOUT2_AHB_CBCR);
+		writel(CLK_ENABLE, GCC_USB0_SLEEP_CBCR);
+		writel(CLK_ENABLE, GCC_USB0_MOCK_UTMI_CBCR);
+		writel((CLK_ENABLE | NOC_HANDSHAKE_FSM_EN),
+						GCC_USB0_PHY_CFG_AHB_CBCR);
+		writel(CLK_ENABLE, GCC_USB0_AUX_CBCR);
+		writel(CLK_ENABLE, GCC_USB0_PIPE_CBCR);
+
 	} else if (id == 1) {
-		writel(0x222004, GCC_USB1_GDSCR);
-		writel(0xcff1, GCC_USB1_MASTER_CBCR);
-		writel(1, GCC_USB1_SLEEP_CBCR);
-		//gcc_usb1_mock_utmi_clk is set to 24 MHz
-		writel(0x1, GCC_USB1_MOCK_UTMI_CFG_RCGR);
-		writel(0x1, GCC_USB1_MOCK_UTMI_M);
-		writel(0xf7, GCC_USB1_MOCK_UTMI_N);
-		writel(0xf6, GCC_USB1_MOCK_UTMI_D);
-		writel(0x3, GCC_USB1_MOCK_UTMI_CMD_RCGR);
-		writel(1, GCC_USB1_MOCK_UTMI_CBCR);
-		writel(0x8001, GCC_USB1_PHY_CFG_AHB_CBCR);
+		cfg = readl(GCC_USB1_GDSCR) | SW_OVERRIDE_ENABLE;
+		cfg &= ~(SW_COLLAPSE_ENABLE);
+		writel(cfg, GCC_USB1_GDSCR);
+
+		/* Configure usb1_mock_utmi_clk_src */
+		cfg = (GCC_USB_MOCK_UTMI_SRC_SEL |
+			GCC_USB_MOCK_UTMI_SRC_DIV);
+		writel(cfg, GCC_USB1_MOCK_UTMI_CFG_RCGR);
+		writel(UTMI_M, GCC_USB1_MOCK_UTMI_M);
+		writel(UTMI_N, GCC_USB1_MOCK_UTMI_N);
+		writel(UTMI_D, GCC_USB1_MOCK_UTMI_D);
+		writel(CMD_UPDATE, GCC_USB1_MOCK_UTMI_CMD_RCGR);
+		mdelay(100);
+		writel(ROOT_EN, GCC_USB1_MOCK_UTMI_CMD_RCGR);
+
+		/* Configure CBCRs */
+		writel(readl(GCC_USB1_MASTER_CBCR) | CLK_ENABLE,
+						GCC_USB1_MASTER_CBCR);
+		writel(CLK_ENABLE, GCC_USB1_SLEEP_CBCR);
+		writel(CLK_ENABLE, GCC_USB1_MOCK_UTMI_CBCR);
+		writel((CLK_ENABLE | NOC_HANDSHAKE_FSM_EN),
+					GCC_USB1_PHY_CFG_AHB_CBCR);
 	}
 }
 
