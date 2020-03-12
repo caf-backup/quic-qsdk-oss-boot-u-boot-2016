@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2018, 2020 The Linux Foundation. All rights reserved.
 
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -62,7 +62,9 @@ enum {
 	QCA_WDT_LOG_DUMP_TYPE_LEVEL1_PT,
 	/* Module structures are in highmem zone*/
 	QCA_WDT_LOG_DUMP_TYPE_WLAN_MOD,
+	QCA_WDT_LOG_DUMP_TYPE_WLAN_MOD_DEBUGFS,
 	QCA_WDT_LOG_DUMP_TYPE_WLAN_MOD_INFO,
+	QCA_WDT_LOG_DUMP_TYPE_WLAN_MMU_INFO,
 	QCA_WDT_LOG_DUMP_TYPE_EMPTY,
 };
 /* This will be used for parsing the TLV data */
@@ -356,21 +358,31 @@ static int dump_wlan_segments(struct dumpinfo_t *dumpinfo, int indx)
 		ret_val = qca_wdt_scm_extract_tlv_info(scm_tlv_msg,
 			&cur_type, &cur_size);
 
-		/* Each Dump segment is represented by a TLV tuple comprising of
-		three TLVs representing the type,size and physical addresses of
-		the data segments and corresponding PMD and PTE entries.
-		QCA_WDT_LOG_DUMP_TYPE_EMPTY type indicates that the TLV tuple has
+		/* Each Dump segment is represented by a TLV representing
+		the type,size and physical addresses of	the dump segments.
+		QCA_WDT_LOG_DUMP_TYPE_EMPTY type indicates that the TLV has
 		been invalidated. When type QCA_WDT_LOG_DUMP_TYPE_EMPTY is encountered,
-		we skip over the TLV touple by moving the current massage buffer pointer
-		ahead by three TLVs */
+		we skip over the TLV by moving the current message buffer pointer
+		ahead by one TLV */
 
 		if(cur_type == QCA_WDT_LOG_DUMP_TYPE_EMPTY) {
 			tlv_size = (cur_size + QCA_WDT_SCM_TLV_TYPE_LEN_SIZE);
-			scm_tlv_msg->cur_msg_buffer_pos += (3 * tlv_size);
+			scm_tlv_msg->cur_msg_buffer_pos += tlv_size;
 		}
 
+		/* While iterating over the crashdump buffer, if MetaData file
+		* TLV types are found (QCA_WDT_LOG_DUMP_TYPE_WLAN_MOD_INFO or
+		* QCA_WDT_LOG_DUMP_TYPE_WLAN_MMU_INFO), we dump the segment with
+		* name "MOD_INFO.txt"/"MMU_INFO.txt". If DEBUFGS TLV type is found
+		* we prefix the Dump binary with “DEBUGFS_” which is useful in
+		* post processing step. If we encounter a QCA_WDT_LOG_DUMP_TYPE_WLAN_MOD
+		* TLV type, we dump the binary with name equal to the physical address
+		* of the binary.
+		*/
 		if (!ret_val && ( cur_type == QCA_WDT_LOG_DUMP_TYPE_WLAN_MOD ||
-						cur_type == QCA_WDT_LOG_DUMP_TYPE_WLAN_MOD_INFO )) {
+						cur_type == QCA_WDT_LOG_DUMP_TYPE_WLAN_MOD_INFO ||
+						cur_type == QCA_WDT_LOG_DUMP_TYPE_WLAN_MMU_INFO ||
+						cur_type == QCA_WDT_LOG_DUMP_TYPE_WLAN_MOD_DEBUGFS )) {
 			ret_val = qca_wdt_scm_extract_tlv_data(scm_tlv_msg,
 				(unsigned char *)&tlv_info,cur_size);
 			memaddr = tlv_info.start;
@@ -379,6 +391,14 @@ static int dump_wlan_segments(struct dumpinfo_t *dumpinfo, int indx)
 				snprintf(wlan_segment_name,	sizeof(wlan_segment_name),
 							 "MOD_INFO.txt");
 				wlan_tlv_size = *(uint32_t *)(uintptr_t)tlv_info.size;
+			} else if (cur_type == QCA_WDT_LOG_DUMP_TYPE_WLAN_MMU_INFO) {
+				snprintf(wlan_segment_name, sizeof(wlan_segment_name),
+							"MMU_INFO.txt");
+				wlan_tlv_size = *(uint32_t *)(uintptr_t)tlv_info.size;
+			} else if (cur_type == QCA_WDT_LOG_DUMP_TYPE_WLAN_MOD_DEBUGFS) {
+				snprintf(wlan_segment_name, sizeof(wlan_segment_name),
+					"DEBUGFS_%lx.BIN",(long unsigned int)memaddr);
+				wlan_tlv_size = tlv_info.size;
 			} else {
 				snprintf(wlan_segment_name,
 						 sizeof(wlan_segment_name), "%lx.BIN",(long unsigned int)memaddr);
@@ -414,7 +434,7 @@ static int do_dumpqca_data(unsigned int dump_level)
 	int dump_entries = dump_entries_n;
 	char wlan_segment_name[32], runcmd[128], *s;
 	char *usb_dump = NULL, *compress = NULL;
-	ulong is_usb_dump = 0;
+	ulong is_usb_dump = 0, is_compress = 0;
 
 	usb_dump = getenv("dump_to_usb");
 	if (usb_dump) {
@@ -526,6 +546,13 @@ static int do_dumpqca_data(unsigned int dump_level)
 		{
 			compress = getenv("dump_compressed");
 			if (compress) {
+				ret = str2long(compress, &is_compress);
+				if (!ret) {
+					is_compress = 0;
+				}
+			}
+
+			if (is_compress == 1) {
 				if (!strncmp(dumpinfo[indx].name, "EBICS2", strlen("EBICS2"))) {
 					memaddr = CONFIG_SYS_SDRAM_BASE + (gd->ram_size / 2);
 					dumpinfo[indx].size = gd->ram_size / 2;
@@ -552,7 +579,7 @@ static int do_dumpqca_data(unsigned int dump_level)
 							      - CONFIG_TZ_SIZE;
 			}
 
-			if (compress && (dumpinfo[indx].to_compress == 1)) {
+			if (is_compress == 1 && (dumpinfo[indx].to_compress == 1)) {
 
 				snprintf(runcmd, sizeof(runcmd), "zip 0x%x 0x%x 0x%x", memaddr, dumpinfo[indx].size, comp_addr);
 				if (run_command(runcmd, 0) != CMD_RET_SUCCESS)
@@ -568,13 +595,13 @@ static int do_dumpqca_data(unsigned int dump_level)
 #ifdef CONFIG_IPQ40XX
 			if (buf != 1)
 #endif
-				if ((compress && (dumpinfo[indx].to_compress != 1)) ||
-				    (!compress && (dumpinfo[indx].to_compress == 1))) {
+				if ((is_compress == 1 && (dumpinfo[indx].to_compress != 1)) ||
+				    (is_compress != 1 && (dumpinfo[indx].to_compress == 1))) {
 					continue;
 				}
 
-			printf("\nProcessing %s:\n", dumpinfo[indx].name);
-			if (is_usb_dump == 1 || compress) {
+			if (is_usb_dump == 1 || is_compress == 1) {
+				printf("\nProcessing %s:\n", dumpinfo[indx].name);
 				ret = dump_to_dst (dumpinfo[indx].is_aligned_access, memaddr, dumpinfo[indx].size, dumpinfo[indx].name);
 				if (ret == CMD_RET_FAILURE) {
 					goto stop_dump;
@@ -592,6 +619,7 @@ static int do_dumpqca_data(unsigned int dump_level)
 						dumpinfo[indx].size = remaining;
 					}
 
+					printf("\nProcessing %s:\n", dumpinfo[indx].name);
 					ret = dump_to_dst (dumpinfo[indx].is_aligned_access, memaddr, dumpinfo[indx].size, dumpinfo[indx].name);
 					if (ret == CMD_RET_FAILURE)
 						goto stop_dump;
@@ -1083,7 +1111,8 @@ static int qca_wdt_write_crashdump_data(
 	* Determine the flash type and initialize function pointer for flash
 	* operations and its context which needs to be passed to these functions
 	*/
-	if (flash_type == SMEM_BOOT_NAND_FLASH) {
+	if (((flash_type == SMEM_BOOT_NAND_FLASH) ||
+		(flash_type == SMEM_BOOT_QSPI_NAND_FLASH))) {
 		crashdump_cnxt = (void *)&crashdump_nand_cnxt;
 		crashdump_flash_write_init = init_crashdump_nand_flash_write;
 		crashdump_flash_write = crashdump_nand_flash_write_data;
@@ -1174,6 +1203,8 @@ int do_dumpqca_minimal_data(const char *offset)
 
 	if (sfi->flash_type == SMEM_BOOT_NAND_FLASH) {
 		flash_type = SMEM_BOOT_NAND_FLASH;
+	} else if (sfi->flash_type == SMEM_BOOT_QSPI_NAND_FLASH) {
+		flash_type = SMEM_BOOT_QSPI_NAND_FLASH;
 	} else if (sfi->flash_type == SMEM_BOOT_SPI_FLASH) {
 		flash_type = SMEM_BOOT_SPI_FLASH;
 #ifdef CONFIG_QCA_MMC

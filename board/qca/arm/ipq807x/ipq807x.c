@@ -188,10 +188,115 @@ gpio_func_data_t spi_nor_gpio[] = {
 	},
 };
 
-board_ipq807x_param_t gboard_param = {
+gpio_func_data_t qpic_nand_gpio[] = {
+	{
+		.gpio = 1,
+		.func = 1,
+		.pull = 3,
+		.drvstr = 3,
+		.oe = 0,
+	},
+	{
+		.gpio = 3,
+		.func = 1,
+		.pull = 3,
+		.drvstr = 3,
+		.oe = 0,
+	},
+	{
+		.gpio = 4,
+		.func = 1,
+		.pull = 3,
+		.drvstr = 3,
+		.oe = 0,
+	},
+	{
+		.gpio = 5,
+		.func = 1,
+		.pull = 3,
+		.drvstr = 3,
+		.oe = 0,
+	},
+	{
+		.gpio = 6,
+		.func = 1,
+		.pull = 3,
+		.drvstr = 3,
+		.oe = 0,
+	},
+	{
+		.gpio = 7,
+		.func = 1,
+		.pull = 3,
+		.drvstr = 3,
+		.oe = 0,
+	},
+	{
+		.gpio = 8,
+		.func = 1,
+		.pull = 3,
+		.drvstr = 3,
+		.oe = 0,
+	},
+	{
+		.gpio = 10,
+		.func = 1,
+		.pull = 3,
+		.drvstr = 3,
+		.oe = 0,
+	},
+	{
+		.gpio = 11,
+		.func = 1,
+		.pull = 3,
+		.drvstr = 3,
+		.oe = 0,
+	},
+	{
+		.gpio = 12,
+		.func = 1,
+		.pull = 3,
+		.drvstr = 3,
+		.oe = 0,
+	},
+	{
+		.gpio = 13,
+		.func = 1,
+		.pull = 3,
+		.drvstr = 3,
+		.oe = 0,
+	},
+	{
+		.gpio = 14,
+		.func = 1,
+		.pull = 3,
+		.drvstr = 3,
+		.oe = 0,
+	},
+	{
+		.gpio = 15,
+		.func = 1,
+		.pull = 3,
+		.drvstr = 3,
+		.oe = 0,
+	},
+	{
+		.gpio = 17,
+		.func = 1,
+		.pull = 3,
+		.drvstr = 3,
+		.oe = 0,
+	},
+};
+
+board_param_t gboard_param = {
 	.spi_nor_cfg = {
 		.gpio = spi_nor_gpio,
 		.gpio_count = ARRAY_SIZE(spi_nor_gpio),
+	},
+	.qpic_nand_cfg = {
+		.gpio = qpic_nand_gpio,
+		.gpio_count = ARRAY_SIZE(qpic_nand_gpio),
 	},
 };
 
@@ -657,7 +762,7 @@ void board_nand_init(void)
 	int i;
 #endif
 
-	qpic_nand_init();
+	qpic_nand_init(&gboard_param.qpic_nand_cfg);
 
 #ifdef CONFIG_QCA_SPI
 	gpio_node = fdt_path_offset(gd->fdt_blob, "/spi/spi_gpio");
@@ -1647,8 +1752,8 @@ void handle_noc_err(void)
 	uint32_t noc_err_pending = 0;
 	noc_err_pending = readl(NOC_ERR_STATUS_REG);
 
-	printf("NOC Error detected, restarting");
 	if ((noc_err_pending & REG_VAL_NOC_ERR) == REG_VAL_NOC_ERR) {
+		printf("NOC Error detected, restarting");
 		writel(REG_VAL_NOC_ERR, NOC_ERR_CLR_REG);
 		run_command("reset", 0);
 	}

@@ -18,6 +18,7 @@
 #include <generated/asm-offsets.h>
 #endif
 
+#define IPQ5018_EMULATION
 #define CONFIG_IPQ5018
 #undef	CONFIG_QCA_DISABLE_SCM
 #define CONFIG_SPI_FLASH_CYPRESS
@@ -25,6 +26,15 @@
 #define CONFIG_SYS_CACHELINE_SIZE		64
 #define CONFIG_CMD_CACHE
 #define CONFIG_IPQ_NO_RELOC
+
+#define CONFIG_SYS_VSNPRINTF
+
+/*
+* Enable Early and Late init
+* This config needs for secondary boot and to set BADOFF5E
+*/
+#define CONFIG_BOARD_EARLY_INIT_F
+#define CONFIG_BOARD_LATE_INIT
 
 #define CONFIG_IPQ5018_UART
 #define CONFIG_NR_DRAM_BANKS			1
@@ -44,9 +54,20 @@
  */
 
 /*
+ * Enable Flashwrite command
+ */
+#define CONFIG_CMD_FLASHWRITE
+
+/*
+ * Enable Env overwrite support
+ */
+#define CONFIG_ENV_OVERWRITE
+
+/*
  * select serial console configuration
 */
 #define CONFIG_CONS_INDEX			1
+#define CONFIG_SYS_DEVICE_NULLDEV
 
 /* allow to overwrite serial and ethaddr */
 #define CONFIG_BAUDRATE				115200
@@ -93,7 +114,6 @@
 #define CONFIG_QCA_SMEM_BASE			0x4AB00000
 
 #define CONFIG_IPQ_FDT_HIGH			0x4A400000
-#define CONFIG_IPQ_NO_MACS			6
 #define CONFIG_ENV_IS_IN_SPI_FLASH		1
 #define CONFIG_ENV_SECT_SIZE			(64 * 1024)
 
@@ -135,6 +155,7 @@ extern loff_t board_env_size;
 #define CONFIG_CMD_NAND_YAFFS
 #define CONFIG_SYS_NAND_SELF_INIT
 #define CONFIG_SYS_NAND_ONFI_DETECTION
+#define CONFIG_PAGE_SCOPE_MULTI_PAGE_READ
 
 /* QSPI Flash configs
  */
@@ -186,6 +207,60 @@ extern loff_t board_env_size;
 #endif
 
 /*
+* I2C Enable
+*/
+#define CONFIG_IPQ5018_I2C
+
+#ifdef CONFIG_IPQ5018_I2C
+#define CONFIG_SYS_I2C_QUP
+#define CONFIG_CMD_I2C
+#define CONFIG_DM_I2C
+#endif
+
+/*
+* GMAC Enable
+*/
+
+#define CONFIG_IPQ5018_GMAC
+
+#define CONFIG_NET_RETRY_COUNT			5
+#define CONFIG_SYS_RX_ETH_BUFFER		16
+#define CONFIG_CMD_PING
+#define CONFIG_CMD_DHCP
+#define CONFIG_MII
+#define CONFIG_CMD_MII
+#define CONFIG_IPADDR				192.168.10.10
+#define CONFIG_NETMASK				255.255.255.0
+#define CONFIG_SERVERIP				192.168.10.19
+#define CONFIG_CMD_TFTPPUT
+#define CONFIG_IPQ_MDIO				2
+#define CONFIG_IPQ_ETH_INIT_DEFER
+
+#define CONFIG_IPQ_NO_MACS			2
+
+/*
+ * USB Support
+ */
+#ifdef CONFIG_USB_XHCI_IPQ
+#define CONFIG_USB_XHCI
+#define CONFIG_USB_XHCI_DWC3
+#define CONFIG_CMD_USB
+#define CONFIG_USB_STORAGE
+#define CONFIG_SYS_USB_XHCI_MAX_ROOT_PORTS      2
+#define CONFIG_USB_MAX_CONTROLLER_COUNT         1
+#endif
+
+/*
+ * PCIE Enable
+ */
+#define PCI_MAX_DEVICES				1
+#if defined(CONFIG_PCI_IPQ) && !defined(IPQ5018_EMULATION)
+#define CONFIG_PCI
+#define CONFIG_CMD_PCI
+#define CONFIG_PCI_SCAN_SHOW
+#endif
+
+/*
 * Expose SPI driver as a pseudo NAND driver to make use
 * of U-Boot's MTD framework.
 */
@@ -231,16 +306,49 @@ extern loff_t board_env_size;
 #define CONFIG_RBTREE
 
 #define CONFIG_CMD_BOOTZ
+#define CONFIG_FDT_FIXUP_PARTITIONS
 
+#define CONFIG_IPQ_FDT_FIXUP
 /*
 * Below Configs need to be updated after enabling reset_crashdump
 * Included now to avoid build failure
 */
+#define CONFIG_OF_BOARD_SETUP
+
+#ifdef CONFIG_OF_BOARD_SETUP
+#define DLOAD_DISABLE				0x1
 #define SET_MAGIC				0x1
 #define CLEAR_MAGIC				0x0
 #define SCM_CMD_TZ_CONFIG_HW_FOR_RAM_DUMP_ID	0x9
 #define SCM_CMD_TZ_FORCE_DLOAD_ID		0x10
-#define SCM_CMD_TZ_PSHOLD			0x15
+#define SCM_CMD_TZ_PSHOLD			0x16
+#define BOOT_VERSION				0
+#define TZ_VERSION				1
+#define RPM_VERSION				3
+#endif
+
+
+#define CONFIG_IPQ5018_TZ_WONCE_4_ADDR		0x193d010
+/*
+* CRASH DUMP ENABLE
+*/
+#define CONFIG_QCA_APPSBL_DLOAD
+#define CONFIG_IPQ5018_DMAGIC_ADDR		0x193D100
+#ifdef CONFIG_QCA_APPSBL_DLOAD
+#define CONFIG_CMD_TFTPPUT
+#define CONFIG_CMD_TFTPPUT
+/* We will be uploading very big files */
+#undef CONFIG_NET_RETRY_COUNT
+#define CONFIG_NET_RETRY_COUNT  500
+
+#define IPQ_TEMP_DUMP_ADDR 0x44000000
+#endif
+
+#define CONFIG_QCA_KERNEL_CRASHDUMP_ADDRESS	*((unsigned int *)0x08600658)
+#define CONFIG_CPU_CONTEXT_DUMP_SIZE		4096
+#define TLV_BUF_OFFSET				244 * 1024
+#define CONFIG_TLV_DUMP_SIZE			12 * 1024
+
 /* L1 cache line size is 64 bytes, L2 cache line size is 128 bytes
 * Cache flush and invalidation based on L1 cache, so the cache line
 * size is configured to 64 */

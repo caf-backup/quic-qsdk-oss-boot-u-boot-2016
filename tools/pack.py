@@ -714,6 +714,8 @@ class Pack(object):
 
     def __gen_flash_script_image(self, filename, soc_version, file_exists, machid, partition, flinfo, script):
 
+	    global IF_HK10
+
 	    img_size = 0
 	    if file_exists == 1:
                 img_size = self.__get_img_size(filename)
@@ -772,6 +774,8 @@ class Pack(object):
 	    if machid:
 		script.start_if("machid", machid)
 
+            if section_conf == "mibib" and IF_HK10:
+                section_conf = "mibib_hk10"
             if section_conf == "qsee":
                 section_conf = "tz"
             elif section_conf == "appsbl":
@@ -783,6 +787,8 @@ class Pack(object):
                 section_conf = "ubi"
             elif section_conf == "wififw" and self.flash_type in ["nand", "nand-4k", "nand-audio", "nand-audio-4k", "norplusnand", "norplusnand-4k"]:
                 section_conf = "wififw_ubi"
+                if IF_HK10:
+                    section_conf = "wififw_ubi_hk10"
 
 	    if soc_version:
 		section_conf = section_conf + "_v" + str(soc_version)
@@ -843,6 +849,7 @@ class Pack(object):
 	global MODE
 	global SRC_DIR
 	global ARCH_NAME
+	global IF_HK10
 
 	diff_files = ""
         count = 0
@@ -853,7 +860,10 @@ class Pack(object):
         if self.flash_type == "norplusemmc" and flinfo.type == "emmc":
             srcDir_part = SRC_DIR + "/" + ARCH_NAME + "/flash_partition/" + flinfo.type + "-partition.xml"
         else:
-            srcDir_part = SRC_DIR + "/" + ARCH_NAME + "/flash_partition/" + self.flash_type.lower() + "-partition.xml"
+            if IF_HK10:
+                srcDir_part = SRC_DIR + "/" + ARCH_NAME + "/flash_partition/" + self.flash_type.lower() + "-partition-hk10.xml"
+            else:
+                srcDir_part = SRC_DIR + "/" + ARCH_NAME + "/flash_partition/" + self.flash_type.lower() + "-partition.xml"
 
         root_part = ET.parse(srcDir_part)
         if self.flash_type != "emmc" and flinfo.type != "emmc":
@@ -1081,6 +1091,8 @@ class Pack(object):
 
     def __gen_script_append_images(self, filename, soc_version, images, flinfo, root, section_conf, partition):
 
+        global HK10
+
 	part_info = self.__get_part_info(partition)
 	if part_info == None and self.flinfo.type != 'norplusnand':
 	    return
@@ -1127,6 +1139,7 @@ class Pack(object):
         """
 	global MODE
 	global SRC_DIR
+	global HK10
 
 	soc_version = 0
 	diff_soc_ver_files = 0
@@ -1136,6 +1149,9 @@ class Pack(object):
         ret = self.__gen_flash_script(script, flinfo, root)
         if ret == 0:
             return 0 #Stop packing this single-image
+
+        if HK10:
+            script.end_if() #end if started for hk10+pine
 
         if (self.flash_type == "norplusemmc" and flinfo.type == "emmc") or (self.flash_type != "norplusemmc"):
             if flinfo.type == "emmc":
@@ -1281,6 +1297,11 @@ class Pack(object):
 		        for img in imgs:
 				soc_version = img.get('soc_version')
 				filename = img.text
+                                if HK10 and section_conf == "wififw":
+                                    filename_hk10 = filename.replace("wifi_fw_ubi", "wifi_fw_ipq8074_qcn9000_ubi")
+				    if os.path.exists(os.path.join(self.images_dname, filename_hk10)):
+                                        section_conf_hk10 = section_conf + "_ubi_hk10"
+                                        self.__gen_script_append_images(filename_hk10, soc_version, images, flinfo, root, section_conf_hk10, partition)
 				if 'optional' in img.attrib:
 				    if not os.path.exists(os.path.join(self.images_dname, filename)):
 					file_exists = 0
@@ -1292,6 +1313,13 @@ class Pack(object):
 			continue
 		    except KeyError, e:
 			continue
+
+                # system-partition specific for HK10+PINE
+                if section_conf == "mibib" and HK10:
+                    img = section.find('img_name')
+                    filename_hk10 = img.text[:-4] + "-hk10.bin"
+                    section_conf_hk10 = section_conf + "_hk10"
+                    self.__gen_script_append_images(filename_hk10, soc_version, images, flinfo, root, section_conf_hk10, partition)
 
             else:
 		if diff_soc_ver_files:
@@ -1364,6 +1392,8 @@ class Pack(object):
     def __gen_board_script(self, flinfo, part_fname, images, root):
 	global SRC_DIR
 	global ARCH_NAME
+	global HK10
+	global IF_HK10
 
         """Generate the flashing script for one board.
 
@@ -1374,7 +1404,9 @@ class Pack(object):
         fconf_fname -- string, flash config file specific to the board
         images -- list of ImageInfo, append images used by the board here
         """
+        IF_HK10 = False
         script_fp = open(self.scr_fname, "a")
+        self.flinfo = flinfo
 
         if flinfo.type != "emmc":
             if root.find(".//data[@type='NAND_PARAMETER']/entry") != None:
@@ -1397,24 +1429,45 @@ class Pack(object):
 
             srcDir_part = SRC_DIR + "/" + ARCH_NAME + "/flash_partition/" + flinfo.type + "-partition.xml"
             root_part = ET.parse(srcDir_part)
-            mibib = MIBIB(part_fname, flinfo.pagesize, flinfo.blocksize,
-                          flinfo.chipsize, blocksize, chipsize, root_part)
-            self.partitions = mibib.get_parts()
+
             if flinfo.type == "nand":
                 script = Flash_Script(flinfo, self.ipq_nand)
             elif flinfo.type == "nor":
                 script = Flash_Script(flinfo, pagesize)
+
+            script.probe()
+            # system-partition specific for HK10+PINE
+            if HK10:
+                IF_HK10 = True
+                part_fname_hk10 = part_fname[:-4] + "-hk10.bin"
+                mibib_hk10 = MIBIB(part_fname_hk10, flinfo.pagesize, flinfo.blocksize,
+                                   flinfo.chipsize, blocksize, chipsize, root_part)
+                self.partitions = mibib_hk10.get_parts()
+
+                script.append('if test "$machid" = "801000e" || test "$machid" = "801010e"; then\n', fatal=False)
+                ret = self.__gen_flash_script(script, flinfo, root)
+                if ret == 0:
+                    return 0 #Issue in packing hk10+pine single-image
+
+                script.append('else', fatal=False)
+                self.partitions = {}
+                IF_HK10 = False
+
+            mibib = MIBIB(part_fname, flinfo.pagesize, flinfo.blocksize,
+                          flinfo.chipsize, blocksize, chipsize, root_part)
+            self.partitions = mibib.get_parts()
+
         else:
             gpt = GPT(part_fname, flinfo.pagesize, flinfo.blocksize, flinfo.chipsize)
             self.partitions = gpt.get_parts()
             script = Flash_Script(flinfo)
 
-        self.flinfo = flinfo
-
-        script.probe()
         ret = self.__gen_script(script_fp, script, images, flinfo, root)
 	if ret == 0:
 	    return 0
+
+	if HK10:
+	    HK10 = False
 
         try:
             script_fp.write(script.dumps())
@@ -1464,6 +1517,7 @@ class Pack(object):
 	global SRC_DIR
 	global ARCH_NAME
 	global MODE
+	global HK10
 
         try:
             if ftype == "tiny-nor":
@@ -1542,6 +1596,9 @@ class Pack(object):
             pages_per_block = int(part_info.find(".//pages_per_block").text)
             blocks_per_chip = int(part_info.find(".//total_block").text)
 
+            if ARCH_NAME == "ipq807x" and (ftype == "norplusnand" or ftype == "nand"):
+                HK10 = True
+
             if ftype in ["tiny-nor", "norplusnand", "norplusnand-4k", "norplusemmc"]:
                 ftype = "nor"
             if ftype in ["nand-4k", "nand-audio", "nand-audio-4k"]:
@@ -1560,6 +1617,9 @@ class Pack(object):
 
     def __process_board(self, images, root):
 
+        global HK10
+
+        HK10 = False
         try:
             if self.flash_type in [ "nand", "nand-4k", "nand-audio", "nand-audio-4k", "nor", "tiny-nor", "norplusnand", "norplusnand-4k" ]:
                 ret = self.__process_board_flash(self.flash_type, images, root)
@@ -1740,14 +1800,24 @@ def gen_kernelboot_img(parser):
             rmtree(TMP_DIR)
 	os.makedirs(TMP_DIR)
 
+        if ARCH_NAME == "ipq807x":
+            BOARD_NAME = ARCH_NAME + "-hk01"
+        elif ARCH_NAME == "ipq6018":
+            BOARD_NAME = ARCH_NAME + "-cp02-c1"
+        else:
+            error("Error: Arch not supported")
+
         if MODE == "64":
             KERNEL_IMG_NAME = "openwrt-" + ARCH_NAME + "_" + MODE + "-kernelboot.img"
             BASE_ADDR = "0x41078000"
         else:
             KERNEL_IMG_NAME = "openwrt-" + ARCH_NAME + "-kernelboot.img"
-            BASE_ADDR = "0x41200000"
+            if ARCH_NAME == "ipq807x":
+                BASE_ADDR = "0x41200000"
+            elif ARCH_NAME == "ipq6018":
+                BASE_ADDR = "0x41000000"
 
-        src = parser.images_dname + "/qcom-" + ARCH_NAME + "-hk01.dtb"
+        src = parser.images_dname + "/qcom-" + BOARD_NAME + ".dtb"
         if not os.path.exists(src):
             error("%s file not found" % src)
         copy(src, TMP_DIR)
@@ -1757,7 +1827,7 @@ def gen_kernelboot_img(parser):
 	    error("%s file not found" % src)
         copy(src, TMP_DIR)
 
-        cmd = [SKALES_DIR + "/dtbTool -o " + TMP_DIR + "/qcom-ipq807x-hk01-dt.img " + TMP_DIR]
+        cmd = [SKALES_DIR + "/dtbTool -o " + TMP_DIR + "/qcom-" + BOARD_NAME + "-dt.img " + TMP_DIR]
         ret = subprocess.call(cmd, shell=True)
         if ret != 0:
             print ret
@@ -1771,7 +1841,7 @@ def gen_kernelboot_img(parser):
 
         cmd = [SKALES_DIR + "/mkbootimg",
                 "--kernel=" + TMP_DIR + "/Image.gz",
-                "--dt=" + TMP_DIR + "/qcom-ipq807x-hk01-dt.img",
+                "--dt=" + TMP_DIR + "/qcom-" + BOARD_NAME + "-dt.img",
                 "--cmdline=\'rootfsname=rootfs rootwait nosmp\'",
                 "--output=" + parser.images_dname + "/" + KERNEL_IMG_NAME,
                 "--base=" + BASE_ADDR]
@@ -1808,9 +1878,6 @@ def main():
     if "nand" in parser.flash_type.split(","):
         if root.find(".//data[@type='NAND_PARAMETER']/entry") != None:
             parser.flash_type = parser.flash_type + ",nand-4k"
-        # Add nand-audio flash type, if arch is ipq6018
-            if ARCH_NAME == "ipq6018":
-                parser.flash_type = parser.flash_type + ",nand-audio,nand-audio-4k"
 
 # Add norplusnand-4k flash type, if norplusnand flash type is specified
     if "norplusnand" in parser.flash_type.split(","):
