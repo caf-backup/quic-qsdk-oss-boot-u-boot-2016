@@ -17,7 +17,6 @@
 #include <asm/errno.h>
 #include <environment.h>
 #include <fdtdec.h>
-#include <asm/arch-qca-common/qpic_nand.h>
 #include <asm/arch-qca-common/gpio.h>
 #include <asm/arch-qca-common/uart.h>
 #include <asm/arch-qca-common/scm.h>
@@ -29,6 +28,9 @@
 #endif
 #ifdef CONFIG_USB_XHCI_IPQ
 #include <usb.h>
+#endif
+#ifdef CONFIG_QPIC_NAND
+#include <asm/arch-qca-common/qpic_nand.h>
 #endif
 
 #define DLOAD_MAGIC_COOKIE	0x10
@@ -42,7 +44,9 @@ DECLARE_GLOBAL_DATA_PTR;
 struct sdhci_host mmc_host;
 #endif
 
+#ifdef CONFIG_IPQ_MTD_NOR
 extern int ipq_spi_init(u16);
+#endif
 
 const char *rsvd_node = "/reserved-memory";
 const char *del_node[] = {"uboot",
@@ -306,7 +310,7 @@ void emmc_clock_reset(void)
 
 int board_mmc_init(bd_t *bis)
 {
-	int node;
+	int node, gpio_node;
 	int ret = 0;
 	qca_smem_flash_info_t *sfi = &qca_smem_flash_info;
 
@@ -315,6 +319,9 @@ int board_mmc_init(bd_t *bis)
 		printf("sdhci: Node Not found, skipping initialization\n");
 		return -1;
 	}
+
+	gpio_node = fdt_subnode_offset(gd->fdt_blob, node, "mmc_gpio");
+	qca_gpio_init(gpio_node);
 
 	mmc_host.ioaddr = (void *)MSM_SDC1_SDHCI_BASE;
 	mmc_host.voltages = MMC_VDD_165_195;
@@ -528,7 +535,9 @@ void board_nand_init(void)
 	gpio_node = fdt_path_offset(gd->fdt_blob, "/spi/spi_gpio");
 	if (gpio_node >= 0) {
 		qca_gpio_init(gpio_node);
+#ifdef CONFIG_IPQ_MTD_NOR
 		ipq_spi_init(CONFIG_IPQ_SPI_NOR_INFO_IDX);
+#endif
 	}
 #endif
 }
