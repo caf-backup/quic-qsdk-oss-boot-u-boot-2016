@@ -23,6 +23,34 @@
 #define MSM_SDC1_SDHCI_BASE		0x7804000
 
 /*
+ * GMAC Block Register
+ */
+#define GCC_GMAC0_BCR			0x01819000
+#define GCC_SNOC_GMAC0_AXI_CBCR		0x01826084
+#define GCC_SNOC_GMAC0_AHB_CBCR		0x018260A0
+#define GCC_GMAC0_PTP_CBCR		0x01868300
+#define GCC_GMAC0_CFG_CBCR		0x01868304
+#define GCC_GMAC0_SYS_CBCR		0x01868190
+
+#define GCC_GMAC1_BCR			0x01819100
+#define GCC_SNOC_GMAC1_AXI_CBCR		0x01826088
+#define GCC_SNOC_GMAC1_AHB_CBCR		0x018260A4
+#define GCC_GMAC1_SYS_CBCR		0x01868310
+#define GCC_GMAC1_PTP_CBCR		0x01868320
+#define GCC_GMAC1_CFG_CBCR		0x01868324
+/*
+ * GEPHY Block Register
+ */
+#define GCC_GEPHY_BCR			0x01856000
+#define GCC_GEPHY_MISC			0x01856004
+
+/*
+ * UNIPHY Block Register
+ */
+#define GCC_UNIPHY_BCR			0x01856100
+#define GCC_UNIPHY_AHB_CBCR		0x01856108
+#define GCC_UNIPHY_SYS_CBCR		0x0185610C
+/*
  * GCC-SDCC Registers
  */
 
@@ -44,6 +72,19 @@
 #define GCC_QPIC_AHB_CBCR_ADDR		0x01857024
 #define GCC_QPIC_SLEEP_CBCR		0x01857028
 #define QPIC_CBCR_VAL			0x80004FF1
+#define GCC_QPIC_IO_MACRO_CMD_RCGR     0x01857010
+#define GCC_QPIC_IO_MACRO_CFG_RCGR     0x01857014
+
+#define IO_MACRO_CLK_400_MHZ		400000000
+#define IO_MACRO_CLK_200_MHZ		200000000
+#define IO_MACRO_CLK_100_MHZ		100000000
+#define IO_MACRO_CLK_24MHZ		24000000
+#define QPIC_IO_MACRO_CLK       	0
+#define QPIC_CORE_CLK           	1
+#define XO_CLK_SRC			2
+#define GPLL0_CLK_SRC			3
+#define FB_CLK_BIT			0x10
+#define UPDATE_EN			0x1
 
 /* UART 1 */
 #define GCC_BLSP1_UART1_BCR               0x01802038
@@ -74,11 +115,12 @@
 #define GCC_UART_CFG_RCGR_SRCSEL_SHIFT    8
 #define GCC_UART_CFG_RCGR_SRCDIV_SHIFT    0
 
-#define UART1_RCGR_SRC_SEL                0x1
-#define UART1_RCGR_SRC_DIV                0x0
-#define UART1_RCGR_MODE                   0x2
-#define UART1_CMD_RCGR_UPDATE             0x1
-#define UART1_CBCR_CLK_ENABLE             0x1
+#define UART1_RCGR_SRC_SEL			0x1
+#define UART1_RCGR_SRC_DIV			0x0
+#define UART1_RCGR_MODE				0x2
+#define UART1_CMD_RCGR_UPDATE			0x1
+#define UART1_CMD_RCGR_ROOT_EN			0x2
+#define UART1_CBCR_CLK_ENABLE			0x1
 
 /* USB Registers */
 #define GCC_SYS_NOC_USB0_AXI_CBCR		0x1826040
@@ -317,9 +359,15 @@ unsigned int __invoke_psci_fn_smc(unsigned int, unsigned int,
 					 unsigned int, unsigned int);
 
 typedef struct {
-	uint base;
+	u32 base;
 	int unit;
-	uint phy_addr;
+	int phy_addr;
+	int phy_interface_mode;
+	int phy_napa_gpio;
+	int phy_type;
+	u32 mac_pwr0;
+	u32 mac_pwr1;
+	int ipq_swith;
 	const char phy_name[MDIO_NAME_LEN];
 } ipq_gmac_board_cfg_t;
 
@@ -387,6 +435,8 @@ void reset_board(void);
 void qpic_clk_enbale(void);
 int ipq_get_tz_version(char *version_name, int buf_size);
 void ipq_fdt_fixup_socinfo(void *blob);
+void qpic_set_clk_rate(unsigned int clk_rate, int blk_type,
+		int req_clk_src_type);
 
 extern const char *rsvd_node;
 extern const char *del_node[];

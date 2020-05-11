@@ -124,26 +124,6 @@ void uart1_set_rate_mnd(unsigned int m,
 	writel(NOT_2D(two_d), GCC_BLSP1_UART1_APPS_D);
 }
 
-int uart1_trigger_update(void)
-{
-	unsigned long cmd_rcgr;
-	int timeout = 0;
-
-	cmd_rcgr = readl(GCC_BLSP1_UART1_APPS_CMD_RCGR);
-	cmd_rcgr |= UART1_CMD_RCGR_UPDATE;
-	writel(cmd_rcgr, GCC_BLSP1_UART1_APPS_CMD_RCGR);
-
-	while (readl(GCC_BLSP1_UART1_APPS_CMD_RCGR) & UART1_CMD_RCGR_UPDATE) {
-		if (timeout++ >= CLOCK_UPDATE_TIMEOUT_US) {
-			printf("Timeout waiting for UART1 clock update\n");
-			return -ETIMEDOUT;
-			udelay(1);
-		}
-	}
-	cmd_rcgr = readl(GCC_BLSP1_UART1_APPS_CMD_RCGR);
-	return 0;
-}
-
 void reset_board(void)
 {
 	run_command("reset", 0);
@@ -158,39 +138,48 @@ void uart1_toggle_clock(void)
 	writel(cbcr_val, GCC_BLSP1_UART1_APPS_CBCR);
 }
 
-void uart1_clock_config(unsigned int m,
-		unsigned int n, unsigned int two_d)
+int uart1_trigger_update(void)
 {
-	uart1_configure_mux();
-	uart1_set_rate_mnd(m, n, two_d);
-	uart1_trigger_update();
+	unsigned long cmd_rcgr;
+	int timeout = 0;
+
+	cmd_rcgr = readl(GCC_BLSP1_UART1_APPS_CMD_RCGR);
+	cmd_rcgr |= UART1_CMD_RCGR_UPDATE | UART1_CMD_RCGR_ROOT_EN;
+	writel(cmd_rcgr, GCC_BLSP1_UART1_APPS_CMD_RCGR);
+
+	while (readl(GCC_BLSP1_UART1_APPS_CMD_RCGR) & UART1_CMD_RCGR_UPDATE) {
+		if (timeout++ >= CLOCK_UPDATE_TIMEOUT_US) {
+			printf("Timeout waiting for UART1 clock update\n");
+			return -ETIMEDOUT;
+			udelay(1);
+		}
+	}
 	uart1_toggle_clock();
+	return 0;
+}
+
+int uart1_clock_config(struct ipq_serial_platdata *plat)
+{
+
+	uart1_configure_mux();
+	uart1_set_rate_mnd(plat->m_value,
+		plat->n_value,
+		plat->d_value);
+	return uart1_trigger_update();
 }
 
 void qca_serial_init(struct ipq_serial_platdata *plat)
 {
-	int node, uart1_node;
+	int ret;
 
-	writel(1, GCC_BLSP1_UART1_APPS_CBCR);
-	node = fdt_path_offset(gd->fdt_blob, "/serial@78AF000/serial_gpio");
-	if (node < 0) {
-		printf("Could not find serial_gpio node\n");
+	if (plat->gpio_node < 0) {
+		printf("serial_init: unable to find gpio node \n");
 		return;
 	}
-
-	if (plat->port_id == 1) {
-		uart1_node = fdt_path_offset(gd->fdt_blob, "uart1");
-		if (uart1_node < 0) {
-			printf("Could not find uart1 node\n");
-			return;
-		}
-	node = fdt_subnode_offset(gd->fdt_blob,
-				uart1_node, "serial_gpio");
-	uart1_clock_config(plat->m_value, plat->n_value, plat->d_value);
-	writel(1, GCC_BLSP1_UART1_APPS_CBCR);
-	}
-
-	qca_gpio_init(node);
+	qca_gpio_init(plat->gpio_node);
+	ret = uart1_clock_config(plat);
+	if (ret)
+		printf("UART clock config failed %d \n", ret);
 }
 
 /*
@@ -510,24 +499,79 @@ void reset_cpu(unsigned long a)
 	while(1);
 }
 
-void qpic_clk_enbale(void)
+#ifdef CONFIG_QPIC_NAND
+void qpic_set_clk_rate(unsigned int clk_rate, int blk_type, int req_clk_src_type)
 {
-#ifdef QPIC_CLOCK_ENABLE
-/*
- || clock enable code has been disabled due to NOC error in emualtion
- || will verify on RDB and remove this clock configuration
-*/
-	writel(QPIC_CBCR_VAL, GCC_QPIC_CBCR_ADDR);
-	writel(0x1, GCC_QPIC_AHB_CBCR_ADDR);
-	writel(0x1, GCC_QPIC_IO_MACRO_CBCR);
-	writel(0x1, GCC_QPIC_CBCR_ADDR);
-#endif
+	switch (blk_type) {
+		case QPIC_IO_MACRO_CLK:
+			/* set the FB_CLK_BIT of register QPIC_QSPI_MSTR_CONFIG
+			 * to by pass the serial training. if this FB_CLK_BIT
+			 * bit enabled then , we can apply upto maximum 200MHz
+			 * input to IO_MACRO_BLOCK.
+			*/
+			writel((FB_CLK_BIT | readl(NAND_QSPI_MSTR_CONFIG)),
+					NAND_QSPI_MSTR_CONFIG);
+
+			/* select the clk source for IO_PAD_MACRO
+			 * clk source wil be either XO = 24MHz. or GPLL0 = 800MHz.
+			 */
+			if (req_clk_src_type == XO_CLK_SRC) {
+				/* default XO clock will enabled
+				 * i.e XO clock = 24MHz.
+				 * so div value will 0.
+				 * Input clock to IO_MACRO will be divided by 4 by default
+				 * by hardware and then taht clock will be go on bus.
+				 * i.e 24/4MHz = 6MHz i.e 6MHz will go onto the bus.
+				 */
+				writel(0x0, GCC_QPIC_IO_MACRO_CFG_RCGR);
+
+			} else if (req_clk_src_type == GPLL0_CLK_SRC) {
+				/* selct GPLL0 clock source 800MHz
+				 * so 800/4 = 200MHz.
+				 * Input clock to IO_MACRO will be divided by 4 by default
+				 * by hardware and then that clock will be go on bus.
+				 * i.e 200/4MHz = 50MHz i.e 50MHz will go onto the bus.
+				 */
+				writel(0x107, GCC_QPIC_IO_MACRO_CFG_RCGR);
+
+			} else {
+				printf("wrong clk src selection requested.\n");
+			}
+
+			/* Enablle update bit to update the new configuration */
+			writel((UPDATE_EN | readl(GCC_QPIC_IO_MACRO_CMD_RCGR)),
+					GCC_QPIC_IO_MACRO_CMD_RCGR);
+
+			/* Enable the QPIC_IO_MACRO_CLK */
+			writel(0x1, GCC_QPIC_IO_MACRO_CBCR);
+
+		       break;
+		case QPIC_CORE_CLK:
+		       /* To DO if needed for QPIC core clock setting */
+		       break;
+		default:
+		       printf("wrong qpic block type\n");
+		       break;
+	}
 }
+#endif
 
 void board_nand_init(void)
 {
 #ifdef CONFIG_QPIC_SERIAL
-	qpic_nand_init(NULL);
+	/* check for nand node in dts
+	 * if nand node in dts is disabled then
+	 * simply return from here without
+	 * initializing
+	 */
+	int node;
+
+	node = fdt_path_offset(gd->fdt_blob, "/nand-controller");
+	if (!fdtdec_get_is_enabled(gd->fdt_blob, node)) {
+		printf("QPIC: disabled, skipping initialization\n");
+	} else {
+		qpic_nand_init(NULL);
+	}
 #endif
 
 #ifdef CONFIG_QCA_SPI
@@ -567,6 +611,72 @@ unsigned long timer_read_counter(void)
 	return 0;
 }
 
+static void set_ext_mdio_gpio(void)
+{
+	/*  mdc  */
+	writel(0x7, (unsigned int *)GPIO_CONFIG_ADDR(36));
+	/*  mdio */
+	writel(0x7, (unsigned int *)GPIO_CONFIG_ADDR(37));
+}
+
+static void set_napa_phy_gpio(int gpio)
+{
+	unsigned int *napa_gpio_base;
+
+	napa_gpio_base = (unsigned int *)GPIO_CONFIG_ADDR(gpio);
+	writel(0x203, napa_gpio_base);
+	gpio_direction_output(gpio, 0x0);
+	mdelay(500);
+	gpio_set_value(gpio, 0x1);
+}
+
+void gmac_clock_enable(void)
+{
+	/* GEPHY BCR Enable */
+	writel(0x0, GCC_GEPHY_BCR);
+	udelay(10);
+
+	/* GMAC0 BCR Enable */
+	writel(0x0, GCC_GMAC0_BCR);
+	udelay(10);
+	/* GMAC0 AHB clock enable */
+	writel(0x1, GCC_SNOC_GMAC0_AHB_CBCR);
+	udelay(10);
+	/* GMAC0 SYS clock */
+	writel(0x1, GCC_GMAC0_SYS_CBCR);
+	udelay(10);
+	/* GMAC0 PTP clock */
+	writel(0x1, GCC_GMAC0_PTP_CBCR);
+	udelay(10);
+	/* GMAC0 CFG clock */
+	writel(0x1, GCC_GMAC0_CFG_CBCR);
+	udelay(10);
+
+	/* UNIPHY BCR Enable */
+	writel(0x0, GCC_UNIPHY_BCR);
+	udelay(10);
+	writel(0x1, GCC_UNIPHY_AHB_CBCR);
+	udelay(10);
+	writel(0x1, GCC_UNIPHY_SYS_CBCR);
+	udelay(10);
+
+	/* GMAC1 BCR Enable */
+	writel(0x0, GCC_GMAC1_BCR);
+	udelay(10);
+	/* GMAC0 AHB clock enable */
+	writel(0x1, GCC_SNOC_GMAC1_AHB_CBCR);
+	udelay(10);
+	/* GMAC0 SYS clock */
+	writel(0x1, GCC_GMAC1_SYS_CBCR);
+	udelay(10);
+	/* GMAC0 PTP clock */
+	writel(0x1, GCC_GMAC1_PTP_CBCR);
+	udelay(10);
+	/* GMAC0 CFG clock */
+	writel(0x1, GCC_GMAC1_CFG_CBCR);
+	udelay(10);
+}
+
 int board_eth_init(bd_t *bis)
 {
 	int status;
@@ -578,6 +688,15 @@ int board_eth_init(bd_t *bis)
 
 	gmac_cfg_node = fdt_path_offset(gd->fdt_blob, "/gmac_cfg");
 	if (gmac_cfg_node >= 0) {
+		/*
+		 * Clock enable
+		 */
+		gmac_clock_enable();
+
+		status =  fdtdec_get_uint(gd->fdt_blob,offset, "ext_mdio_gpio", 0);
+		if (status){
+			set_ext_mdio_gpio();
+		}
 		for (offset = fdt_first_subnode(gd->fdt_blob, gmac_cfg_node);
 			offset > 0;
 			offset = fdt_next_subnode(gd->fdt_blob, offset) , loop++) {
@@ -591,12 +710,33 @@ int board_eth_init(bd_t *bis)
 			gmac_cfg[loop].phy_addr = fdtdec_get_uint(gd->fdt_blob,
 					offset, "phy_address", 0);
 
+			gmac_cfg[loop].phy_interface_mode = fdtdec_get_uint(gd->fdt_blob,
+					offset, "phy_interface_mode", 0);
+
+			gmac_cfg[loop].phy_napa_gpio = fdtdec_get_uint(gd->fdt_blob,
+					offset, "napa_gpio", 0);
+			if (gmac_cfg[loop].phy_napa_gpio){
+				set_napa_phy_gpio(gmac_cfg[loop].phy_napa_gpio);
+			}
+
+			gmac_cfg[loop].phy_type = fdtdec_get_uint(gd->fdt_blob,
+					offset, "phy_type", -1);
+
+			gmac_cfg[loop].mac_pwr0 = fdtdec_get_uint(gd->fdt_blob,
+					offset, "mac_pwr0", 0);
+
+			gmac_cfg[loop].mac_pwr1 = fdtdec_get_uint(gd->fdt_blob,
+					offset, "mac_pwr1", 0);
+
+			gmac_cfg[loop].ipq_swith = fdtdec_get_uint(gd->fdt_blob,
+					offset, "s17c_switch_enable", 0);
+
 			phy_name_ptr = (char*)fdt_getprop(gd->fdt_blob, offset,
 					"phy_name", &phy_name_len);
 
 			strlcpy((char *)gmac_cfg[loop].phy_name, phy_name_ptr, phy_name_len);
-                }
-        }
+		}
+	}
 	gmac_cfg[loop].unit = -1;
 
 	ipq_gmac_common_init(gmac_cfg);
@@ -1025,6 +1165,29 @@ void fdt_fixup_wcss_rproc_for_atf(void *blob)
  * Set btss in non-secure mode only if ATF is enable
  */
 	parse_fdt_fixup("/soc/bt@7000000%qcom,nosecure%1", blob);
+}
+
+void fdt_fixup_bt_debug(void *blob)
+{
+	int node, phandle;
+	char node_name[32];
+
+	if ((gd->bd->bi_arch_number == MACH_TYPE_IPQ5018_AP_MP02_1) ||
+		(gd->bd->bi_arch_number == MACH_TYPE_IPQ5018_DB_MP02_1)) {
+		node = fdt_path_offset(blob, "/soc/pinctrl@1000000/btss_pins");
+		if (node) {
+			phandle = fdtdec_get_int(blob, node, "phandle", 0);
+			snprintf(node_name,
+				sizeof(node_name),
+				"%s%d",
+				"/soc/bt@7000000%pinctrl-0%",
+				phandle);
+			parse_fdt_fixup("/soc/bt@7000000%pinctrl-names%?btss_pins", blob);
+			parse_fdt_fixup(node_name, blob);
+		}
+	}
+	parse_fdt_fixup("/soc/serial@78b0000/%status%?ok", blob);
+
 }
 
 void run_tzt(void *address)
