@@ -30,13 +30,10 @@ dtb-$(CONFIG_ARCH_IPQ807x) += ipq807x-hk01.dtb \
 	ipq807x-hk14.dtb \
 	ipq807x-hk11-c1.dtb \
 	ipq807x-ac01.dtb \
-	ipq807x-ac02.dtb \
 	ipq807x-ac03.dtb \
 	ipq807x-ac04.dtb \
 	ipq807x-oak02.dtb \
-	ipq807x-oak03.dtb \
 	ipq807x-hk01-c2.dtb \
-	ipq807x-hk01-c3.dtb \
 	ipq807x-hk01-c4.dtb \
 	ipq807x-hk01-c5.dtb \
 	ipq807x-hk10-c2.dtb
@@ -66,7 +63,6 @@ dtb-$(CONFIG_ARCH_IPQ40xx) += ipq40xx-dk01-c1.dtb \
 ifneq ($(CONFIG_IPQ_TINY),y)
 dtb-$(CONFIG_ARCH_IPQ5018) += ipq5018-emulation.dtb \
 			ipq5018-mp02.1.dtb \
-			ipq5018-mp03.1.dtb \
 			ipq5018-mp03.1-c2.dtb \
 			ipq5018-mp03.3.dtb \
 			ipq5018-mp03.3-c2.dtb \
@@ -74,9 +70,11 @@ dtb-$(CONFIG_ARCH_IPQ5018) += ipq5018-emulation.dtb \
 			ipq5018-db-mp03.1.dtb \
 			ipq5018-db-mp03.1-c2.dtb \
 			ipq5018-db-mp03.3.dtb \
-			ipq5018-db-mp03.3-c2.dtb
+			ipq5018-db-mp03.3-c2.dtb \
+			ipq5018-mp03.1.dtb
 else
-dtb-$(CONFIG_ARCH_IPQ5018) += ipq5018-emulation.dtb
+dtb-$(CONFIG_ARCH_IPQ5018) += ipq5018-db-mp02.1.dtb \
+				ipq5018-mp02.1.dtb
 endif
 
 dtb-$(CONFIG_ARCH_IPQ6018) += ipq6018-cp01-c1.dtb \

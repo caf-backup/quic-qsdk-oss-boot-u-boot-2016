@@ -1262,6 +1262,66 @@ int ipq_board_usb_init(void)
 }
 #endif
 
+unsigned int get_dts_machid(unsigned int machid)
+{
+	switch (machid)
+	{
+		case MACH_TYPE_IPQ807x_AP_HK01_C3:
+		case MACH_TYPE_IPQ807x_AP_HK01_C6:
+		case MACH_TYPE_IPQ807x_AP_OAK03:
+			return MACH_TYPE_IPQ807x_AP_HK01_C1;
+		case MACH_TYPE_IPQ807x_AP_AC02:
+			return MACH_TYPE_IPQ807x_AP_AC01;
+		case MACH_TYPE_IPQ807x_AP_HK12_C1:
+			return MACH_TYPE_IPQ807x_AP_HK10_C2;
+		default:
+			return machid;
+	}
+}
+
+void ipq_uboot_fdt_fixup(void)
+{
+	int ret, len;
+	char *config = NULL;
+
+	switch (gd->bd->bi_arch_number)
+	{
+		case MACH_TYPE_IPQ807x_AP_HK01_C3:
+			config = "config@hk01.c3";
+			break;
+		case MACH_TYPE_IPQ807x_AP_HK01_C6:
+			config = "config@hk01.c6";
+			break;
+		case MACH_TYPE_IPQ807x_AP_HK12_C1:
+			config = "config@hk12";
+			break;
+		case MACH_TYPE_IPQ807x_AP_AC02:
+			config = "config@ac02";
+			break;
+		case MACH_TYPE_IPQ807x_AP_OAK03:
+			config = "config@oak03";
+			break;
+	}
+
+	if (config != NULL)
+	{
+		len = fdt_totalsize(gd->fdt_blob) + strlen(config) + 1;
+
+		/*
+		 * Open in place with a new length.
+		*/
+		ret = fdt_open_into(gd->fdt_blob, (void *)gd->fdt_blob, len);
+		if (ret)
+			 printf("uboot-fdt-fixup: Cannot expand FDT: %s\n", fdt_strerror(ret));
+
+		ret = fdt_setprop((void *)gd->fdt_blob, 0, "config_name",
+				config, (strlen(config)+1));
+		if (ret)
+			printf("uboot-fdt-fixup: unable to set config_name(%d)\n", ret);
+	}
+	return;
+}
+
 void ipq_fdt_fixup_socinfo(void *blob)
 {
 	uint32_t cpu_type;

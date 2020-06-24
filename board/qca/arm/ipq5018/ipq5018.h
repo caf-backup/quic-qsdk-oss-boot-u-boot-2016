@@ -19,37 +19,97 @@
 #include <asm/arch-qca-common/qca_common.h>
 #include "phy.h"
 
-#define MSM_SDC1_BASE			0x7800000
-#define MSM_SDC1_SDHCI_BASE		0x7804000
+#define MSM_SDC1_BASE				0x7800000
+#define MSM_SDC1_SDHCI_BASE			0x7804000
+
+#define GCC_MDIO0_BASE				0x1858000
+#define GCC_GMAC_CFG_RCGR			0x01868084
+#define GCC_GMAC_CMD_RCGR			0x01868080
+#define GCC_GMAC_BASE				0x01868000
+
+
+#define GCC_GMAC_CFG_RCGR_SRC_SEL_MASK		0x700
+#define GCC_GMAC0_RX_SRC_SEL_GEPHY_TX		0x200
+#define GCC_GMAC0_TX_SRC_SEL_GEPHY_TX		0x100
+#define GCC_GMAC1_RX_SRC_SEL_UNIPHY_RX		0x100
+#define GCC_GMAC1_TX_SRC_SEL_UNIPHY_TX		0x100
+#define CMN_PLL_PLL_LOCKED_REG			0x9B064
+#define CMN_PLL_PLL_LOCKED_SIZE			0x4
+#define CMN_PLL_LOCKED				0x4
 
 /*
- * GMAC Block Register
+ * CMN BLK clock
  */
-#define GCC_GMAC0_BCR			0x01819000
-#define GCC_SNOC_GMAC0_AXI_CBCR		0x01826084
-#define GCC_SNOC_GMAC0_AHB_CBCR		0x018260A0
-#define GCC_GMAC0_PTP_CBCR		0x01868300
-#define GCC_GMAC0_CFG_CBCR		0x01868304
-#define GCC_GMAC0_SYS_CBCR		0x01868190
+#define GCC_CMN_BLK_AHB_CBCR			0x01856308
+#define GCC_CMN_BLK_SYS_CBCR			0x0185630C
+#define CMN_BLK_ADDR				0x0009B780
+#define CMN_BLK_SIZE				0x100
+#define FREQUENCY_MASK				0xfffffdf0
+#define INTERNAL_48MHZ_CLOCK    		0x7
 
-#define GCC_GMAC1_BCR			0x01819100
-#define GCC_SNOC_GMAC1_AXI_CBCR		0x01826088
-#define GCC_SNOC_GMAC1_AHB_CBCR		0x018260A4
-#define GCC_GMAC1_SYS_CBCR		0x01868310
-#define GCC_GMAC1_PTP_CBCR		0x01868320
-#define GCC_GMAC1_CFG_CBCR		0x01868324
+#define TCSR_ETH_LDO_RDY_REG			0x19475C4
+#define TCSR_ETH_LDO_RDY_SIZE			0x4
+#define ETH_LDO_RDY				0x1
+
 /*
  * GEPHY Block Register
  */
-#define GCC_GEPHY_BCR			0x01856000
-#define GCC_GEPHY_MISC			0x01856004
+#define GCC_GEPHY_BCR				0x01856000
+#define GCC_GEPHY_MISC				0x01856004
+#define GCC_GEPHY_RX_CBCR			0x01856010
+#define GCC_GEPHY_TX_CBCR			0x01856014
+#define GCC_GEPHY_BCR_BLK_ARES			0x1
+#define GCC_GEPHY_MISC_ARES			0xf
 
 /*
  * UNIPHY Block Register
  */
-#define GCC_UNIPHY_BCR			0x01856100
-#define GCC_UNIPHY_AHB_CBCR		0x01856108
-#define GCC_UNIPHY_SYS_CBCR		0x0185610C
+#define GCC_UNIPHY_BCR				0x01856100
+#define GCC_UNIPHY_AHB_CBCR			0x01856108
+#define GCC_UNIPHY_SYS_CBCR			0x0185610C
+#define GCC_UNIPHY_BCR_BLK_ARES			0x1
+#define GCC_UNIPHY_MISC_ARES			0x32
+#define GCC_UNIPHY_RX_CBCR			0x01856110
+#define GCC_UNIPHY_TX_CBCR			0x01856114
+
+/* GMAC0 GCC clock */
+#define GCC_GMAC0_RX_CMD_RCGR			0x01868020
+#define GCC_GMAC0_RX_CFG_RCGR			0x01868024
+#define GCC_GMAC0_TX_CMD_RCGR			0x01868028
+#define GCC_GMAC0_TX_CFG_RCGR			0x0186802C
+#define GCC_GMAC0_RX_MISC			0x01868420
+#define GCC_GMAC0_TX_MISC			0x01868424
+#define GCC_GMAC0_MISC				0x01868428
+#define GCC_GMAC0_BCR				0x01819000
+#define GCC_SNOC_GMAC0_AXI_CBCR			0x01826084
+#define GCC_SNOC_GMAC0_AHB_CBCR			0x018260A0
+#define GCC_GMAC0_PTP_CBCR			0x01868300
+#define GCC_GMAC0_CFG_CBCR			0x01868304
+#define GCC_GMAC0_SYS_CBCR			0x01868190
+#define GCC_GMAC0_RX_CBCR			0x01868240
+#define GCC_GMAC0_TX_CBCR			0x01868244
+#define GCC_GMAC0_BCR_BLK_ARES			0x1
+
+/* GMAC1 GCC Clock */
+#define GCC_GMAC1_RX_CMD_RCGR			0x01868030
+#define GCC_GMAC1_RX_CFG_RCGR			0x01868034
+#define GCC_GMAC1_TX_CMD_RCGR			0x01868038
+#define GCC_GMAC1_TX_CFG_RCGR			0x0186803C
+#define GCC_GMAC1_RX_MISC			0x01868430
+#define GCC_GMAC1_TX_MISC			0x01868434
+#define GCC_GMAC1_MISC				0x01868438
+#define GCC_GMAC1_BCR				0x01819100
+#define GCC_SNOC_GMAC1_AXI_CBCR			0x01826088
+#define GCC_SNOC_GMAC1_AHB_CBCR			0x018260A4
+#define GCC_GMAC1_SYS_CBCR			0x01868310
+#define GCC_GMAC1_PTP_CBCR			0x01868320
+#define GCC_GMAC1_CFG_CBCR			0x01868324
+#define GCC_GMAC1_RX_CBCR			0x01868248
+#define GCC_GMAC1_TX_CBCR			0x0186824C
+#define GCC_GMAC1_BCR_BLK_ARES			0x1
+
+#define GCC_CBCR_CLK_ENABLE			0x1
+
 /*
  * GCC-SDCC Registers
  */
@@ -62,7 +122,6 @@
 #define GCC_SDCC1_APPS_D		0x01842014
 #define GCC_SDCC1_APPS_CBCR		0x01842018
 #define GCC_SDCC1_AHB_CBCR		0x0184201C
-#define GCC_SDCC1_MISC			0x01842020
 
 /*
  * GCC-QPIC Registers
@@ -74,8 +133,9 @@
 #define QPIC_CBCR_VAL			0x80004FF1
 #define GCC_QPIC_IO_MACRO_CMD_RCGR     0x01857010
 #define GCC_QPIC_IO_MACRO_CFG_RCGR     0x01857014
-
-#define IO_MACRO_CLK_400_MHZ		400000000
+#define IO_MACRO_CLK_320_MHZ		320000000
+#define IO_MACRO_CLK_266_MHZ		266000000
+#define IO_MACRO_CLK_228_MHZ		228000000
 #define IO_MACRO_CLK_200_MHZ		200000000
 #define IO_MACRO_CLK_100_MHZ		100000000
 #define IO_MACRO_CLK_24MHZ		24000000
@@ -83,7 +143,7 @@
 #define QPIC_CORE_CLK           	1
 #define XO_CLK_SRC			2
 #define GPLL0_CLK_SRC			3
-#define FB_CLK_BIT			0x10
+#define FB_CLK_BIT			(1 << 4)
 #define UPDATE_EN			0x1
 
 /* UART 1 */
@@ -103,9 +163,6 @@
 #define GCC_BLSP1_UART2_APPS_M            0x0180303C
 #define GCC_BLSP1_UART2_APPS_N            0x01803040
 #define GCC_BLSP1_UART2_APPS_D            0x01803044
-
-
-#define GCC_SDCC1_BCR                     0x01842000
 
 #define GCC_UART_CFG_RCGR_MODE_MASK       0x3000
 #define GCC_UART_CFG_RCGR_SRCSEL_MASK     0x0700
@@ -165,11 +222,18 @@
 #define GUCTL					0x700C12C
 #define FLADJ					0x700C630
 
-#define USB30_PHY_1_QUSB2PHY_BASE		0x79000
+#define QUSB2PHY_BASE				0x5b000
+
+#define GCC_USB0_LFPS_CFG_SRC_SEL		(0x1 << 8)
+#define GCC_USB0_LFPS_CFG_SRC_DIV		(0x1f << 0)
+#define LFPS_M					0x1
+#define LFPS_N					0xfe
+#define LFPS_D					0xfd
+#define GCC_USB0_LFPS_MODE			(0x2 << 12)
 
 #define GCC_USB0_AUX_CFG_MODE_DUAL_EDGE 	(2 << 12)
 #define GCC_USB0_AUX_CFG_SRC_SEL		(0 << 8)
-#define GCC_USB0_AUX_CFG_SRC_DIV		(0 << 0)
+#define GCC_USB0_AUX_CFG_SRC_DIV		(0x17 << 0)
 
 #define AUX_M					0x0
 #define AUX_N					0x0
@@ -180,20 +244,15 @@
 
 
 #define GCC_USB0_MASTER_CFG_RCGR_SRC_SEL	(1 << 8)
-#define GCC_USB0_MASTER_CFG_RCGR_SRC_DIV	(0xb << 0)
+#define GCC_USB0_MASTER_CFG_RCGR_SRC_DIV	(0x7 << 0)
 
-#define GCC_USB_MOCK_UTMI_SRC_SEL		(0 << 8)
-#define GCC_USB_MOCK_UTMI_SRC_DIV		(1 << 0)
-#define UTMI_M					0x1
-#define UTMI_N					0xf7
-#define UTMI_D					0xf6
+#define GCC_USB_MOCK_UTMI_SRC_SEL		(1 << 8)
+#define GCC_USB_MOCK_UTMI_SRC_DIV		(0x13 << 0)
+#define GCC_USB_MOCK_UTMI_CLK_DIV		(0x1 << 16)
 
-#define GCC_SNOC_BUS_TIMEOUT2_AHB_CBCR		0x01847014
 #define GCC_QUSB2_1_PHY_BCR			0x1841040
-#define USB30_PHY_2_QUSB2PHY_BASE		0x59000
 
-#define USB30_PHY_1_USB3PHY_AHB2PHY_BASE	0x78000
-#define USB30_PHY_2_USB2PHY_AHB2PHY_BASE	0x58000
+#define USB3PHY_APB_BASE			0x5d000
 
 #define USB3_PHY_POWER_DOWN_CONTROL		0x804
 #define QSERDES_COM_SYSCLK_EN_SEL		0xac
@@ -354,9 +413,46 @@
 #define ARM_PSCI_TZ_FN_AFFINITY_INFO	ARM_PSCI_TZ_FN(4)
 
 #define CLK_ENABLE				0x1
+#define SSCG_CTRL_REG_1			0x9c
+#define SSCG_CTRL_REG_2			0xa0
+#define SSCG_CTRL_REG_3			0xa4
+#define SSCG_CTRL_REG_4			0xa8
+#define SSCG_CTRL_REG_5			0xac
+#define SSCG_CTRL_REG_6			0xb0
+#define CDR_CTRL_REG_1			0x80
+#define CDR_CTRL_REG_2			0x84
+#define CDR_CTRL_REG_3			0x88
+#define CDR_CTRL_REG_4			0x8C
+#define CDR_CTRL_REG_5			0x90
+#define CDR_CTRL_REG_6			0x94
+#define CDR_CTRL_REG_7			0x98
+
+#define APB_FIXED_OFFSET		(0x1 << 3)
+
+#define USB_PHY_CFG0                    0x94
+#define USB_PHY_UTMI_CTRL5              0x50
+#define USB_PHY_FSEL_SEL                0xB8
+#define USB_PHY_HS_PHY_CTRL_COMMON0     0x54
+#define USB_PHY_REFCLK_CTRL             0xA0
+#define USB_PHY_HS_PHY_CTRL2            0x64
+#define USB_PHY_UTMI_CTRL0              0x3c
+
+#define UTMI_PHY_OVERRIDE_EN           (1 << 1)
+#define POR_EN                         (1 << 1)
+#define FREQ_SEL                       (1 << 0)
+#define COMMONONN                      (1 << 7)
+#define FSEL                           (1 << 4)
+#define RETENABLEN                     (1 << 3)
+#define USB2_SUSPEND_N_SEL             (1 << 3)
+#define USB2_SUSPEND_N                 (1 << 2)
+#define USB2_UTMI_CLK_EN               (1 << 1)
+#define CLKCORE                        (1 << 1)
+#define ATERESET                       ~(1 << 0)
 
 unsigned int __invoke_psci_fn_smc(unsigned int, unsigned int,
 					 unsigned int, unsigned int);
+
+#define S17C_MAX_PORT			4
 
 typedef struct {
 	u32 base;
@@ -365,9 +461,10 @@ typedef struct {
 	int phy_interface_mode;
 	int phy_napa_gpio;
 	int phy_type;
-	u32 mac_pwr0;
-	u32 mac_pwr1;
+	u32 mac_pwr;
 	int ipq_swith;
+	int switch_port_count;
+	int switch_port_phy_address[S17C_MAX_PORT];
 	const char phy_name[MDIO_NAME_LEN];
 } ipq_gmac_board_cfg_t;
 

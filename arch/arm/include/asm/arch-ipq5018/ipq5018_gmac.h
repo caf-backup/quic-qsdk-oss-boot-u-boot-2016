@@ -17,32 +17,8 @@
 #include <net.h>
 #include <configs/ipq5018.h>
 
-#define GEPHY					0x7 /* Dummy */
-
-#define GEPHY_PHY_TYPE				0x1
-#define NAPA_PHY_TYPE				0x2
-
-/* GMAC0 GCC clock */
-#define GCC_GMAC0_RX_CMD_RCGR			0x01868020
-#define GCC_GMAC0_RX_CFG_RCGR			0x01868024
-#define GCC_GMAC0_TX_CMD_RCGR			0x01868028
-#define GCC_GMAC0_TX_CFG_RCGR			0x0186802C
-#define GCC_GMAC0_RX_CBCR			0x01868240
-#define GCC_GMAC0_TX_CBCR			0x01868244
-#define GCC_GMAC0_RX_MISC			0x01868420
-#define GCC_GMAC0_TX_MISC			0x01868424
-#define GCC_GMAC0_MISC				0x01868428
-
-/* GMAC1 GCC Clock */
-#define GCC_GMAC1_RX_CMD_RCGR			0x01868030
-#define GCC_GMAC1_RX_CFG_RCGR			0x01868034
-#define GCC_GMAC1_TX_CMD_RCGR			0x01868038
-#define GCC_GMAC1_TX_CFG_RCGR			0x0186803C
-#define GCC_GMAC1_RX_CBCR			0x01868248
-#define GCC_GMAC1_TX_CBCR			0x0186824C
-#define GCC_GMAC1_RX_MISC			0x01868430
-#define GCC_GMAC1_TX_MISC			0x01868434
-#define GCC_GMAC1_MISC				0x01868438
+#define GEPHY					0x004DD0C0
+#define S17C					0x1302
 
 #define CONFIG_MACRESET_TIMEOUT			(3 * CONFIG_SYS_HZ)
 #define CONFIG_MDIO_TIMEOUT			(3 * CONFIG_SYS_HZ)
@@ -60,7 +36,6 @@
 
 /* Poll demand definitions */
 #define POLL_DATA				(0x0)
-
 
 /* Descriptior related definitions */
 #define MAC_MAX_FRAME_SZ			(1600)
@@ -193,8 +168,9 @@
 
 /* GMAC config definitions */
 #define MII_PORT_SELECT				(1 << 15)
-#define GMII_PORT_SELECT			(0 << 15)
+#define SGMII_PORT_SELECT			(0 << 15)
 #define FRAME_BURST_ENABLE			(1 << 21)
+#define JABBER_DISABLE				(1 << 22)
 #define JUMBO_FRAME_ENABLE			(1 << 20)
 #define HALF_DUPLEX_ENABLE			(0 << 11)
 #define FULL_DUPLEX_ENABLE			(1 << 11)
@@ -251,7 +227,7 @@ typedef struct
 } ipq_gmac_desc_t ;
 
 #define IPQ5018_GMAC_PORT	2
-#define IPQ5018_PHY_MAX		2
+#define IPQ5018_PHY_MAX		1
 
 struct ipq_eth_dev {
 	uint			phy_address;
@@ -276,7 +252,7 @@ struct ipq_eth_dev {
 	struct eth_mac_regs	*mac_regs_p;
 	struct eth_dma_regs	*dma_regs_p;
 	struct eth_device *dev;
-	struct phy_ops		*ops[IPQ5018_PHY_MAX];
+	struct phy_ops		*ops;
 	const char phy_name[MDIO_NAME_LEN];
 	struct ipq_forced_mode *forced_params;
 	ipq_gmac_board_cfg_t	*gmac_board_cfg;
