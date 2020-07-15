@@ -389,4 +389,10 @@ extern loff_t board_env_size;
 #undef CONFIG_ZLIB
 #endif
 
+/*
+ * 96 MHz
+ */
+
+#define INTERNAL_96MHZ
+
 #endif /* _IPQ5018_H */
