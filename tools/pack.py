@@ -89,7 +89,7 @@ memory_size = "default"
 lk = "false"
 skip_4k_nand = "false"
 atf = "false"
-qcn9100 = "false"
+qcn6122 = "false"
 tiny_16m = "false"
 
 # Note: ipq806x didn't expose any relevant version */
@@ -758,8 +758,8 @@ class Pack(object):
 	    machid_list.append(machid)
 
 	script.start_if_or("machid", machid_list)
-	script.start_activity("Flashing wifi_fw volume:")
-	script.imxtract("wifi_fw_" + wifi_fw_type + "-" + sha1(fw_filename))
+	script.start_activity("Flashing " + fw_filename[:-13] + ":")
+	script.imxtract(fw_filename[:-13] + "-" + sha1(fw_filename))
 	script.append('flash wifi_fw', fatal=False)
 
 	script.finish_activity()
@@ -837,14 +837,14 @@ class Pack(object):
 	    return 1
 
 	script.start_if_or("machid", machid_list)
-	script.start_activity("Flashing %s_%s:" % ( section_conf, wifi_fw_type ))
+	script.start_activity("Flashing %s:" % ( filename[:-13] ))
 
 	if img_size > 0:
 	    filename_pad = filename + ".padded"
 	    if ((self.flinfo.type == 'nand' or self.flinfo.type == 'emmc') and (size != img_size)):
-		script.imxtract(section_conf + "_" + wifi_fw_type + "-" + sha1(filename_pad))
+		script.imxtract(filename[:-13] + "-" + sha1(filename_pad))
 	    else:
-		script.imxtract(section_conf + "_" + wifi_fw_type + "-" + sha1(filename))
+		script.imxtract(filename[:-13] + "-" + sha1(filename))
 
 	part_size = Pack.norplusnand_rootfs_img_size
 	if part_info == None:
@@ -1247,7 +1247,7 @@ class Pack(object):
 			try:
 			    diff_soc_ver_files = section.attrib['diff_soc_ver_files']
 			except KeyError, e:
-			    if (qcn9100 == "true" or tiny_16m == "true") and 'wififw_type_min' in section.attrib:
+			    if (qcn6122 == "true" or tiny_16m == "true") and 'wififw_type_min' in section.attrib:
 				wifi_fw_type_min = section.attrib['wififw_type_min']
 				wifi_fw_type_max = section.attrib['wififw_type_max']
 			    else:
@@ -1313,7 +1313,7 @@ class Pack(object):
             if flinfo.type != "emmc":
 		img = section.find('img_name')
 
-		if img != None and 'wififw_type' in img.attrib and (qcn9100 == "true" or tiny_16m == "true"):
+		if img != None and 'wififw_type' in img.attrib and (qcn6122 == "true" or tiny_16m == "true"):
 		    imgs = section.findall('img_name')
 		    try:
 			for img in imgs:
@@ -1410,7 +1410,7 @@ class Pack(object):
                 if ret == 0:
                     return 0
 
-	    if self.flash_type in [ "nand", "nand-4k", "norplusnand", "norplusnand-4k" ] and partition == "rootfs" and qcn9100 == "true":
+	    if self.flash_type in [ "nand", "nand-4k", "norplusnand", "norplusnand-4k" ] and partition == "rootfs" and qcn6122 == "true":
 
 		fw_imgs = section.findall('img_name')
 		for fw_img in fw_imgs:
@@ -1551,7 +1551,7 @@ class Pack(object):
 	elif section_conf == "wififw" and self.flash_type in ["nand", "nand-4k", "nand-audio", "nand-audio-4k", "norplusnand", "norplusnand-4k"]:
 	    section_conf = "wififw_ubi"
 	elif section_conf == "wififw" and wifi_fw_type:
-	    section_conf = section_conf + "_" + wifi_fw_type
+	    section_conf = filename[:-13]
 
 	if soc_version:
 	    section_conf = section_conf + "_v" + str(soc_version)
@@ -1564,7 +1564,7 @@ class Pack(object):
 
     def __gen_script_append_images_wififw_ubi_volume(self, fw_filename, wifi_fw_type, images):
 
-	image_info = ImageInfo("wifi_fw_" + wifi_fw_type + "-" + sha1(fw_filename),
+	image_info = ImageInfo(fw_filename[:-13] + "-" + sha1(fw_filename),
 				fw_filename, "firmware")
 	if fw_filename.lower() != "none":
 	    if image_info not in images:
@@ -1689,7 +1689,7 @@ class Pack(object):
 			    diff_soc_ver_files = section.attrib['diff_soc_ver_files']
 			    partition = section.attrib['label']
 			except KeyError, e:
-			    if (qcn9100 == "true" or tiny_16m == "true") and 'wififw_type_min' in section.attrib:
+			    if (qcn6122 == "true" or tiny_16m == "true") and 'wififw_type_min' in section.attrib:
 				wifi_fw_type_min = section.attrib['wififw_type_min']
 				wifi_fw_type_max = section.attrib['wififw_type_max']
 				partition = section.attrib['label']
@@ -1755,7 +1755,7 @@ class Pack(object):
 
 		img = section.find('img_name')
 
-		if img != None and 'wififw_type' in img.attrib and (qcn9100 == "true" or tiny_16m == "true"):
+		if img != None and 'wififw_type' in img.attrib and (qcn6122 == "true" or tiny_16m == "true"):
 		    imgs = section.findall('img_name')
 		    try:
 			for img in imgs:
@@ -1860,7 +1860,7 @@ class Pack(object):
             if filename != "":
                 self.__gen_script_append_images(filename, soc_version, wifi_fw_type, images, flinfo, root, section_conf, partition)
 
-	    if self.flash_type in [ "nand", "nand-4k", "norplusnand", "norplusnand-4k" ] and section_conf == "rootfs" and qcn9100 == "true":
+	    if self.flash_type in [ "nand", "nand-4k", "norplusnand", "norplusnand-4k" ] and section_conf == "rootfs" and qcn6122 == "true":
 
 		fw_imgs = section.findall('img_name')
 		try:
@@ -2210,7 +2210,7 @@ class ArgParser(object):
         global lk
         global atf
         global skip_4k_nand
-	global qcn9100
+	global qcn6122
 
         """Start the parsing process, and populate members with parsed value.
 
@@ -2220,7 +2220,7 @@ class ArgParser(object):
 	cdir = os.path.abspath(os.path.dirname(""))
         if len(sys.argv) > 1:
             try:
-                opts, args = getopt(sys.argv[1:], "", ["arch=", "fltype=", "srcPath=", "inImage=", "outImage=", "image_type=", "memory=", "lk", "skip_4k_nand", "atf", "qcn9100"])
+                opts, args = getopt(sys.argv[1:], "", ["arch=", "fltype=", "srcPath=", "inImage=", "outImage=", "image_type=", "memory=", "lk", "skip_4k_nand", "atf", "qcn6122"])
             except GetoptError, e:
 		raise UsageError(e.msg)
 
@@ -2255,8 +2255,8 @@ class ArgParser(object):
                 elif option =="--skip_4k_nand":
                     skip_4k_nand = "true"
 
-                elif option == "--qcn9100":
-                    qcn9100 = "true"
+                elif option == "--qcn6122":
+                    qcn6122 = "true"
 
 #Verify Arguments passed by user
 

@@ -114,26 +114,96 @@ static struct qpic_serial_nand_params qpic_serial_nand_tbl[] = {
 		.check_quad_config = false,
 		.name = "MT29F1G01ABBFDWB-IT",
 	},
+	{
+		.id = { 0xef, 0xbc },
+		.page_size = 2048,
+		.erase_blk_size = 0x00020000,
+		.pgs_per_blk = 64,
+		.no_of_blocks = 1024,
+		.spare_size = 64,
+		.density = 0x08000000,
+		.otp_region = 0x5000,
+		.no_of_addr_cycle = 0x3,
+		.num_bits_ecc_correctability = 4,
+		.timing_mode_support = 0,
+		.quad_mode = true,
+		.check_quad_config = true,
+		.name = "W25N01JW",
+	},
+	{
+		.id = { 0xc8, 0x11 },
+		.page_size = 2048,
+		.erase_blk_size = 0x00020000,
+		.pgs_per_blk = 64,
+		.no_of_blocks = 1024,
+		.spare_size = 64,
+		.density = 0x08000000,
+		.otp_region = 0x2000,
+		.no_of_addr_cycle = 0x3,
+		.num_bits_ecc_correctability = 4,
+		.timing_mode_support = 0,
+		.quad_mode = true,
+		.check_quad_config = false,
+		.name = "F50D1G41LB(2M)",
+	},
+	{
+		.id = { 0xc8, 0x41 },
+		.page_size = 2048,
+		.erase_blk_size = 0x00020000,
+		.pgs_per_blk = 64,
+		.no_of_blocks = 2048,
+		.spare_size = 128,
+		.density = 0x08000000,
+		.otp_region = 0x2000,
+		.no_of_addr_cycle = 0x3,
+		.num_bits_ecc_correctability = 8,
+		.timing_mode_support = 0,
+		.quad_mode = true,
+		.check_quad_config = true,
+		.name = "GD5F1GQ5REYIG",
+	},
+	{
+		.id = { 0xc8, 0x21 },
+		.page_size = 2048,
+		.erase_blk_size = 0x00020000,
+		.pgs_per_blk = 64,
+		.no_of_blocks = 1024,
+		.spare_size = 64,
+		.density = 0x08000000,
+		.otp_region = 0x2000,
+		.no_of_addr_cycle = 0x3,
+		.num_bits_ecc_correctability = 4,
+		.timing_mode_support = 0,
+		.quad_mode = true,
+		.check_quad_config = true,
+		.name = "GD5F1GQ5REYIH",
+	},
+	{
+		.id = { 0xef, 0xbf },
+		.page_size = 2048,
+		.erase_blk_size = 0x00020000,
+		.pgs_per_blk = 64,
+		.no_of_blocks = 2048,
+		.spare_size = 64,
+		.density = 0x10000000,
+		.otp_region = 0x2000,
+		.no_of_addr_cycle = 0x3,
+		.num_bits_ecc_correctability = 4,
+		.timing_mode_support = 0,
+		.quad_mode = true,
+		.check_quad_config = true,
+		.name = "W25N02JWZEIF",
+	},
 };
 struct qpic_serial_nand_params *serial_params;
 #define MICRON_DEVICE_ID	0x152c152c
+#define WINBOND_DEVICE_ID	0x0021bcef
 #define CMD3_MASK		0xfff0ffff
 /*
  * An array holding the fixed pattern to compare with
  * training pattern.
  */
 static const unsigned int training_block_64[] = {
-	0x0F0F0F0F, 0x0F0F0F0F, 0x0F0F0F0F, 0x0F0F0F0F,
-	0x0F0F0F0F, 0x0F0F0F0F, 0x0F0F0F0F, 0x0F0F0F0F,
-	0x0F0F0F0F, 0x0F0F0F0F, 0x0F0F0F0F, 0x0F0F0F0F,
-	0x0F0F0F0F, 0x0F0F0F0F, 0x0F0F0F0F, 0x0F0F0F0F,
-};
-
-static const unsigned int training_block_128[] = {
-	0x0F0F0F0F, 0x0F0F0F0F, 0x0F0F0F0F, 0x0F0F0F0F,
-	0x0F0F0F0F, 0x0F0F0F0F, 0x0F0F0F0F, 0x0F0F0F0F,
-	0x0F0F0F0F, 0x0F0F0F0F, 0x0F0F0F0F, 0x0F0F0F0F,
-	0x0F0F0F0F, 0x0F0F0F0F, 0x0F0F0F0F, 0x0F0F0F0F,
 	0x0F0F0F0F, 0x0F0F0F0F, 0x0F0F0F0F, 0x0F0F0F0F,
 	0x0F0F0F0F, 0x0F0F0F0F, 0x0F0F0F0F, 0x0F0F0F0F,
 	0x0F0F0F0F, 0x0F0F0F0F, 0x0F0F0F0F, 0x0F0F0F0F,
@@ -1257,14 +1327,14 @@ int qpic_spi_nand_config(struct mtd_info *mtd)
 			qspi_debug("%s : Quad bit not enabled.\n",__func__);
 			qspi_debug("%s : Issuning set feature command to enable it.\n",
 					__func__);
-
 			/* Enable quad bit */
 			status = qpic_serial_set_feature(mtd, FLASH_SPI_NAND_FR_ADDR,
 			FLASH_SPI_NAND_FR_QUAD_ENABLE);
 			if (status < 0) {
-			printf("%s : Error in enabling Quad bit.\n",__func__);
-			return status;
+				printf("%s : Error in enabling Quad bit.\n",__func__);
+				return status;
 			}
+
 			/* Read status again to know wether Quad bit enabled or not */
 			status = qpic_serial_get_feature(mtd, FLASH_SPI_NAND_FR_ADDR);
 				if (status < 0) {
@@ -1276,16 +1346,39 @@ int qpic_spi_nand_config(struct mtd_info *mtd)
 				qspi_debug("%s:Quad mode not enabled,so use x1 Mode.\n",
 					__func__);
 				dev->quad_mode = false;
-				return 0;
 			} else {
 				qspi_debug("%s: Quad mode enabled. using X4 mode\n",__func__);
-				return 0;
 			}
 		} else {
 			qspi_debug("%s: Quad mode enabled on Opwer on.\n",__func__);
-			return 0;
 		}
 	}
+
+	if (dev->id == WINBOND_DEVICE_ID) {
+		status = qpic_serial_get_feature(mtd, FLASH_SPI_NAND_FR_ADDR);
+		if (status < 0) {
+			printf("%s : Error in getting feature.\n",__func__);
+			return status;
+		}
+
+		if (!((status >> 8) & FLASH_SPI_NAND_FR_BUFF_ENABLE)) {
+			qspi_debug("%s :continous buffer mode disabled\n",
+				__func__);
+			qspi_debug("%s : Issuing set feature command to enable it\n",
+					__func__);
+			status = qpic_serial_set_feature(mtd, FLASH_SPI_NAND_FR_ADDR,
+				(FLASH_SPI_NAND_FR_BUFF_ENABLE | (status >> 8)));
+			if (status < 0) {
+				printf("%s : Error in disabling continous buffer bit.\n",
+						__func__);
+				return status;
+			}
+		} else {
+			qspi_debug("%s : continous buffer mode enabled on power on\n",
+					__func__);
+		}
+	}
+
 	return 0;
 }
 #endif
@@ -4133,7 +4226,7 @@ static int qpic_execute_serial_training(struct mtd_info *mtd)
 
 	unsigned int start, blk_cnt = 0;
 	unsigned int offset, pageno, curr_freq;
-	int size = sizeof(training_block_128);
+	int i;
 	unsigned int io_macro_freq_tbl[] = {24000000, 100000000, 200000000, 320000000};
 
 	unsigned char *data_buff, trained_phase[TOTAL_NUM_PHASE] = {'\0'};
@@ -4187,15 +4280,16 @@ static int qpic_execute_serial_training(struct mtd_info *mtd)
 		goto err;
 	}
 
-	data_buff = (unsigned char *)malloc(size);
+	data_buff = (unsigned char *)malloc(mtd->writesize);
 	if (!data_buff) {
 		printf("Errorn in allocating memory.\n");
 		ret = -ENOMEM;
 		goto err;
 	}
 	/* prepare clean buffer */
-	memset(data_buff, 0xff, size);
-	memcpy(data_buff, training_block_128, size);
+	memset(data_buff, 0xff, mtd->writesize);
+	for (i = 0; i < mtd->writesize; i += sizeof(training_block_64))
+		memcpy(data_buff + i, training_block_64, sizeof(training_block_64));
 
 	/*write training data to flash */
 	ret = NANDC_RESULT_SUCCESS;
@@ -4207,7 +4301,7 @@ static int qpic_execute_serial_training(struct mtd_info *mtd)
 	memset(dev->pad_oob, 0xFF, dev->oob_per_page);
 
 	ops.mode = MTD_OPS_AUTO_OOB;
-	ops.len = size;
+	ops.len =  mtd->writesize;
 	ops.retlen = 0;
 	ops.ooblen = dev->oob_per_page;
 	ops.oobretlen = 0;
@@ -4224,7 +4318,7 @@ static int qpic_execute_serial_training(struct mtd_info *mtd)
 	/* After write verify the the data with read @ lower frequency
 	 * after that only start serial tarining @ higher frequency
 	 */
-	memset(data_buff, 0xff, size);
+	memset(data_buff, 0xff, mtd->writesize);
 	ops.datbuf = (uint8_t *)data_buff;
 
 	ret = qpic_nand_read_page(mtd, pageno, NAND_CFG, &ops);
@@ -4234,9 +4328,11 @@ static int qpic_execute_serial_training(struct mtd_info *mtd)
 	}
 
 	/* compare original data and read data */
-	if (memcmp(data_buff, training_block_128, size)) {
-		printf("Training data read failed @ lower frequency\n");
-		goto free;
+	for (i = 0; i < mtd->writesize; i += sizeof(training_block_64)) {
+		if (memcmp(data_buff + i, training_block_64, sizeof(training_block_64))) {
+			printf("Training data read failed @ lower frequency\n");
+			goto free;
+		}
 	}
 
 	/* disable feed back clock bit to start serial training */
@@ -4258,7 +4354,7 @@ rettry:
 		/* set the phase */
 		qpic_set_phase(phase);
 
-		memset(data_buff, 0, size);
+		memset(data_buff, 0, mtd->writesize);
 		ops.datbuf = (uint8_t *)data_buff;
 
 		ret = qpic_nand_read_page(mtd, pageno, NAND_CFG, &ops);
@@ -4267,17 +4363,15 @@ rettry:
 			goto free;
 		}
 		/* compare original data and read data */
-		if (memcmp(data_buff, training_block_128, size)) {
-			/* wrong data read on one of miso line
-			 * change the phase value and try again
-			 */
-			phase_failed++;
-		} else {
-			/* we got good phase update the good phase list
-			 */
+		for (i = 0; i < mtd->writesize; i += sizeof(training_block_64)) {
+			if (memcmp(data_buff + i, training_block_64, sizeof(training_block_64))) {
+				phase_failed++;
+				break;
+			}
+		}
+		if (i == mtd->writesize)
 			trained_phase[phase_cnt++] = phase;
 			/*printf("%s : Found good phase %d\n",__func__,phase);*/
-		}
 
 	} while (phase++ < TOTAL_NUM_PHASE);
 
