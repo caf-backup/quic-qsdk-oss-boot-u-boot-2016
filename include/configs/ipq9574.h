@@ -207,6 +207,7 @@ extern loff_t board_env_size;
 #endif /* QSPI DEBUG */
 #define CONFIG_PAGE_SCOPE_MULTI_PAGE_READ
 #define CONFIG_QSPI_SERIAL_TRAINING
+#define CONFIG_QSPI_LAYOUT_SWITCH
 #endif
 
 /*
@@ -219,6 +220,7 @@ extern loff_t board_env_size;
 #define CONFIG_IPQ_MAX_NAND_DEVICE	1
 #define CONFIG_IPQ_MAX_SPI_DEVICE	1
 
+#define CONFIG_IPQ_MAX_BLSP_QUPS	6
 #define CONFIG_QPIC_NAND_NAND_INFO_IDX	0
 #define CONFIG_IPQ_SPI_NOR_INFO_IDX	1
 
